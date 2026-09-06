@@ -10,6 +10,8 @@ export interface CrawlConfig {
   respectRobots: boolean;
   useSitemap: boolean;
   renderJs: boolean;
+  lookupHosting: boolean;
+  runAccessibilityAudit: boolean;
 }
 
 export interface PageResult {
@@ -37,7 +39,33 @@ export interface PageResult {
   minifySavingsPct: number;
   isMinified: boolean;
   rendered: boolean;
+  hsts: boolean;
+  insecureLinkCount: number;
+  missingAltCount: number;
+  lang: string | null;
+  hreflangValues: string[];
+  internalNofollowCount: number;
+  textRatioPct: number;
+  contentHash: string;
+  xRobotsTag: string | null;
+  viewport: string | null;
+  hasOpenGraph: boolean;
+  hasTwitterCard: boolean;
+  canonicalCount: number;
+  discoveredViaSitemap: boolean;
+  redirectChain: string[];
+  structuredDataTypes: string[];
+  structuredDataErrors: string[];
+  accessibilityViolations: AccessibilityViolation[];
   error: string | null;
+}
+
+export interface AccessibilityViolation {
+  id: string;
+  impact: string | null;
+  description: string;
+  helpUrl: string;
+  nodeCount: number;
 }
 
 export type ResourceKind = "link" | "image";
@@ -50,6 +78,7 @@ export interface ResourceResult {
   status: number | null;
   statusText: string;
   isInternal: boolean;
+  isInsecure: boolean;
   error: string | null;
 }
 
@@ -62,10 +91,25 @@ export interface CrawlProgress {
   paused: boolean;
 }
 
+export interface SiteInfo {
+  llmsTxtFound: boolean;
+  llmsTxtUrl: string | null;
+  robotsTxtChecked: boolean;
+  server: string | null;
+  poweredBy: string | null;
+  cdn: string | null;
+  cms: string | null;
+  technologies: string[];
+  ipAddresses: string[];
+  hostingOrg: string | null;
+  hostingCountry: string | null;
+}
+
 export interface CrawlSummary {
   pagesCrawled: number;
   resourcesChecked: number;
   cancelled: boolean;
+  linkedUrls: string[];
 }
 
 export interface CrawlSnapshot {
@@ -87,4 +131,6 @@ export const DEFAULT_CONFIG: CrawlConfig = {
   respectRobots: false,
   useSitemap: false,
   renderJs: false,
+  lookupHosting: false,
+  runAccessibilityAudit: false,
 };

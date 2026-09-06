@@ -30,8 +30,9 @@ pub async fn start_crawl(
     let app_handle = app.clone();
 
     tauri::async_runtime::spawn(async move {
-        crawl::run_crawl(app_handle.clone(), config, cancel.clone(), paused, pages.clone(), resources.clone())
-            .await;
+        let linked_urls =
+            crawl::run_crawl(app_handle.clone(), config, cancel.clone(), paused, pages.clone(), resources.clone())
+                .await;
         running.store(false, Ordering::SeqCst);
         let cancelled = cancel.load(Ordering::SeqCst);
         let pages_crawled = pages.lock().unwrap().len();
@@ -42,6 +43,7 @@ pub async fn start_crawl(
                 pages_crawled,
                 resources_checked,
                 cancelled,
+                linked_urls,
             },
         );
     });

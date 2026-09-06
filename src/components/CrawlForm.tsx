@@ -1,4 +1,6 @@
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { CrawlConfig } from "../types";
+import { addUrlToHistory, clearUrlHistory, getUrlHistory, removeUrlFromHistory } from "../lib/urlHistory";
 
 interface CrawlFormProps {
   config: CrawlConfig;
@@ -21,25 +23,106 @@ export function CrawlForm({
   onPause,
   onResume,
 }: CrawlFormProps) {
+  const [history, setHistory] = useState<string[]>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [debouncedQuery, setDebouncedQuery] = useState(config.startUrl);
+  const inputWrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setHistory(getUrlHistory());
+  }, []);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedQuery(config.startUrl), 150);
+    return () => window.clearTimeout(handle);
+  }, [config.startUrl]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (inputWrapRef.current && !inputWrapRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredHistory = useMemo(() => {
+    const q = debouncedQuery.trim().toLowerCase();
+    const list = q ? history.filter((u) => u.toLowerCase().includes(q)) : history;
+    return list.slice(0, 8);
+  }, [history, debouncedQuery]);
+
   function set<K extends keyof CrawlConfig>(key: K, value: CrawlConfig[K]) {
     onChange({ ...config, [key]: value });
   }
 
+  function handleStartClick() {
+    addUrlToHistory(config.startUrl);
+    setHistory(getUrlHistory());
+    setShowDropdown(false);
+    onStart();
+  }
+
+  function selectHistoryUrl(url: string) {
+    set("startUrl", url);
+    setShowDropdown(false);
+  }
+
+  function handleClearHistory() {
+    clearUrlHistory();
+    setHistory([]);
+  }
+
+  function handleRemoveHistoryItem(e: ReactMouseEvent, url: string) {
+    e.stopPropagation();
+    removeUrlFromHistory(url);
+    setHistory((prev) => prev.filter((u) => u !== url));
+  }
+
   return (
     <div className="crawl-form">
-      <input
-        type="text"
-        className="url-input"
-        placeholder="https://example.com"
-        value={config.startUrl}
-        disabled={running}
-        onChange={(e) => set("startUrl", e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !running && config.startUrl) onStart();
-        }}
-      />
+      <div className="url-input-wrap" ref={inputWrapRef}>
+        <input
+          type="text"
+          className="url-input"
+          placeholder="https://example.com"
+          value={config.startUrl}
+          disabled={running}
+          onFocus={() => setShowDropdown(true)}
+          onChange={(e) => set("startUrl", e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !running && config.startUrl) handleStartClick();
+            else if (e.key === "Escape") setShowDropdown(false);
+          }}
+        />
+        {showDropdown && !running && filteredHistory.length > 0 && (
+          <ul className="url-history-dropdown">
+            {filteredHistory.map((u) => (
+              <li key={u} className="url-history-item">
+                <button type="button" className="url-history-select" onClick={() => selectHistoryUrl(u)}>
+                  {u}
+                </button>
+                <button
+                  type="button"
+                  className="url-history-remove"
+                  aria-label={`Remove ${u} from history`}
+                  onClick={(e) => handleRemoveHistoryItem(e, u)}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+            <li className="url-history-clear">
+              <button type="button" onClick={handleClearHistory}>
+                Clear history
+              </button>
+            </li>
+          </ul>
+        )}
+      </div>
       {!running ? (
-        <button className="btn primary" disabled={!config.startUrl} onClick={onStart}>
+        <button className="btn primary" disabled={!config.startUrl} onClick={handleStartClick}>
           Start Crawl
         </button>
       ) : (
@@ -144,9 +227,47 @@ export function CrawlForm({
               type="checkbox"
               checked={config.renderJs}
               disabled={running}
-              onChange={(e) => set("renderJs", e.target.checked)}
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  renderJs: e.target.checked,
+                  // Accessibility audit runs inside the same JS-render browser pass,
+                  // so it can't be enabled without it.
+                  runAccessibilityAudit: e.target.checked ? config.runAccessibilityAudit : false,
+                })
+              }
             />
             Render JavaScript (slow)
+          </label>
+          <label
+            className="checkbox-label"
+            title="Runs an axe-core accessibility audit on the rendered page. Requires 'Render JavaScript' since it reuses that browser pass; enabling this turns Render JavaScript on automatically."
+          >
+            <input
+              type="checkbox"
+              checked={config.runAccessibilityAudit}
+              disabled={running}
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  runAccessibilityAudit: e.target.checked,
+                  renderJs: e.target.checked ? true : config.renderJs,
+                })
+              }
+            />
+            Run accessibility audit (axe-core, slow)
+          </label>
+          <label
+            className="checkbox-label"
+            title="Sends the site's resolved IP address to the free ip-api.com service to identify the hosting provider/ASN."
+          >
+            <input
+              type="checkbox"
+              checked={config.lookupHosting}
+              disabled={running}
+              onChange={(e) => set("lookupHosting", e.target.checked)}
+            />
+            Look up hosting provider (calls ip-api.com)
           </label>
           <label className="wide">
             User agent

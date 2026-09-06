@@ -8,15 +8,30 @@ import { CrawlForm } from "./components/CrawlForm";
 import { SummaryBar } from "./components/SummaryBar";
 import { DataTable } from "./components/DataTable";
 import { DetailModal } from "./components/DetailModal";
+import { SiteInfoPanel } from "./components/SiteInfoPanel";
 import {
   DEFAULT_CONFIG,
   type CrawlConfig,
   type CrawlProgress,
   type CrawlSnapshot,
+  type CrawlSummary,
   type PageResult,
   type ResourceResult,
+  type SiteInfo,
 } from "./types";
-import { type FilterKey, filterPages, filterResources, filterTab, getDuplicateTitleSet } from "./lib/filters";
+import {
+  type FilterKey,
+  filterPages,
+  filterResources,
+  filterTab,
+  getCanonicalStatusMap,
+  getDuplicateContentSet,
+  getDuplicateMetaSet,
+  getDuplicateTitleSet,
+  getPageIssueKeys,
+  getResourceIssueKeys,
+} from "./lib/filters";
+import { ISSUE_SOLUTIONS } from "./lib/issueSolutions";
 
 type Tab = "pages" | "resources";
 
@@ -61,6 +76,76 @@ const pageColumns: ColumnDef<PageResult, any>[] = [
     size: 100,
     cell: (c) => (c.getValue() ? "Yes" : "No"),
   },
+  {
+    accessorKey: "hsts",
+    header: "HSTS",
+    size: 80,
+    cell: (c) => (c.row.original.url.startsWith("https:") ? (c.getValue() ? "Yes" : "No") : "-"),
+  },
+  { accessorKey: "insecureLinkCount", header: "Insecure Links", size: 110 },
+  { accessorKey: "missingAltCount", header: "Missing Alt", size: 100 },
+  {
+    accessorKey: "lang",
+    header: "Lang",
+    size: 80,
+    cell: (c) => (c.row.original.htmlSizeBytes ? (c.getValue() ?? "-") : "-"),
+  },
+  {
+    accessorKey: "hreflangValues",
+    header: "Hreflang",
+    size: 140,
+    cell: (c) => (c.getValue() as string[]).join(", "),
+  },
+  { accessorKey: "internalNofollowCount", header: "Nofollow Links", size: 110 },
+  {
+    accessorKey: "textRatioPct",
+    header: "Text/HTML Ratio",
+    size: 120,
+    cell: (c) => (c.row.original.htmlSizeBytes ? `${(c.getValue() as number).toFixed(1)}%` : "-"),
+  },
+  {
+    accessorKey: "viewport",
+    header: "Viewport",
+    size: 90,
+    cell: (c) => (c.row.original.htmlSizeBytes ? (c.getValue() ? "Yes" : "No") : "-"),
+  },
+  {
+    accessorKey: "hasOpenGraph",
+    header: "Open Graph",
+    size: 100,
+    cell: (c) => (c.getValue() ? "Yes" : "No"),
+  },
+  {
+    accessorKey: "hasTwitterCard",
+    header: "Twitter Card",
+    size: 100,
+    cell: (c) => (c.getValue() ? "Yes" : "No"),
+  },
+  { accessorKey: "canonicalCount", header: "Canonical Count", size: 110 },
+  {
+    accessorKey: "redirectChain",
+    header: "Redirect Hops",
+    size: 110,
+    cell: (c) => (c.getValue() as string[]).length,
+  },
+  {
+    accessorKey: "discoveredViaSitemap",
+    header: "Via Sitemap",
+    size: 100,
+    cell: (c) => (c.getValue() ? "Yes" : "No"),
+  },
+  {
+    accessorKey: "structuredDataTypes",
+    header: "Structured Data",
+    size: 150,
+    cell: (c) => (c.getValue() as string[]).join(", "),
+  },
+  {
+    accessorKey: "accessibilityViolations",
+    header: "A11y Issues",
+    size: 100,
+    cell: (c) => (c.getValue() as unknown[]).length,
+  },
 ];
 
 const resourceColumns: ColumnDef<ResourceResult, any>[] = [
@@ -70,6 +155,8 @@ const resourceColumns: ColumnDef<ResourceResult, any>[] = [
   { accessorKey: "statusText", header: "Status Text", size: 160 },
   { accessorKey: "sourcePage", header: "Source Page", size: 360 },
   { accessorKey: "isInternal", header: "Internal", size: 80, cell: (c) => (c.getValue() ? "Yes" : "No") },
+  { accessorKey: "altText", header: "Alt Text", size: 200, cell: (c) => c.getValue() ?? "" },
+  { accessorKey: "isInsecure", header: "Insecure", size: 80, cell: (c) => (c.getValue() ? "Yes" : "No") },
   { accessorKey: "error", header: "Error", size: 200, cell: (c) => c.getValue() ?? "" },
 ];
 
@@ -80,11 +167,13 @@ function App() {
   const [progress, setProgress] = useState<CrawlProgress | null>(null);
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [siteInfo, setSiteInfo] = useState<SiteInfo | null>(null);
   const [tab, setTab] = useState<Tab>("pages");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedPage, setSelectedPage] = useState<PageResult | null>(null);
   const [selectedResource, setSelectedResource] = useState<ResourceResult | null>(null);
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [linkedUrls, setLinkedUrls] = useState<string[]>([]);
   const pagesBufRef = useRef<PageResult[]>([]);
   const resourcesBufRef = useRef<ResourceResult[]>([]);
 
@@ -136,13 +225,17 @@ function App() {
         resourcesBufRef.current.push(payload);
         scheduleFlush();
       });
+      await registerListener<SiteInfo>("crawl://site_info", (payload) => {
+        setSiteInfo(payload);
+      });
       await registerListener<CrawlProgress>("crawl://progress", (payload) => {
         setProgress(payload);
         setPaused(payload.paused);
       });
-      await registerListener<void>("crawl://done", () => {
+      await registerListener<CrawlSummary>("crawl://done", (payload) => {
         setRunning(false);
         setPaused(false);
+        setLinkedUrls(payload.linkedUrls);
         setProgress((prev) => (prev ? { ...prev, running: false, paused: false } : prev));
       });
       await registerListener<string>("crawl://error", (payload) => {
@@ -165,6 +258,8 @@ function App() {
     setErrorMsg(null);
     setFilter("all");
     setPaused(false);
+    setSiteInfo(null);
+    setLinkedUrls([]);
     pagesBufRef.current = [];
     resourcesBufRef.current = [];
     setRunning(true);
@@ -252,11 +347,29 @@ function App() {
   const activeCount = useMemo(() => (tab === "pages" ? pages.length : resources.length), [tab, pages, resources]);
 
   const duplicateTitleSet = useMemo(() => getDuplicateTitleSet(pages), [pages]);
+  const duplicateContentSet = useMemo(() => getDuplicateContentSet(pages), [pages]);
+  const duplicateMetaSet = useMemo(() => getDuplicateMetaSet(pages), [pages]);
+  const canonicalStatusMap = useMemo(() => getCanonicalStatusMap(pages), [pages]);
+  const linkedUrlSet = useMemo(() => new Set(linkedUrls), [linkedUrls]);
   const filteredPages = useMemo(
-    () => filterPages(pages, filter, duplicateTitleSet),
-    [pages, filter, duplicateTitleSet],
+    () => filterPages(pages, filter, duplicateTitleSet, duplicateContentSet, duplicateMetaSet, canonicalStatusMap, linkedUrlSet),
+    [pages, filter, duplicateTitleSet, duplicateContentSet, duplicateMetaSet, canonicalStatusMap, linkedUrlSet],
   );
   const filteredResources = useMemo(() => filterResources(resources, filter), [resources, filter]);
+
+  const selectedPageIssues = useMemo(() => {
+    if (!selectedPage) return [];
+    return getPageIssueKeys(selectedPage, duplicateTitleSet, duplicateContentSet, duplicateMetaSet, canonicalStatusMap, linkedUrlSet)
+      .map((key) => ISSUE_SOLUTIONS[key])
+      .filter((s) => s !== undefined);
+  }, [selectedPage, duplicateTitleSet, duplicateContentSet, duplicateMetaSet, canonicalStatusMap, linkedUrlSet]);
+
+  const selectedResourceIssues = useMemo(() => {
+    if (!selectedResource) return [];
+    return getResourceIssueKeys(selectedResource)
+      .map((key) => ISSUE_SOLUTIONS[key])
+      .filter((s) => s !== undefined);
+  }, [selectedResource]);
 
   const handleSelectFilter = useCallback((next: FilterKey) => {
     setFilter((prev) => {
@@ -283,9 +396,12 @@ function App() {
         />
       </header>
 
+      {siteInfo && <SiteInfoPanel siteInfo={siteInfo} />}
+
       <SummaryBar
         pages={pages}
         resources={resources}
+        linkedUrls={linkedUrlSet}
         progress={progress}
         running={running}
         paused={paused}
@@ -359,6 +475,7 @@ function App() {
         <DetailModal
           title={selectedPage.url}
           onClose={() => setSelectedPage(null)}
+          issues={selectedPageIssues}
           fields={[
             { label: "URL", value: selectedPage.url },
             { label: "Status", value: selectedPage.status },
@@ -388,6 +505,49 @@ function App() {
             },
             { label: "Depth", value: selectedPage.depth },
             { label: "JS Rendered", value: selectedPage.rendered ? "Yes" : "No" },
+            {
+              label: "HSTS",
+              value: selectedPage.url.startsWith("https:") ? (selectedPage.hsts ? "Yes" : "No") : null,
+            },
+            { label: "Insecure Links", value: selectedPage.insecureLinkCount },
+            { label: "Missing Alt Images", value: selectedPage.missingAltCount },
+            { label: "Lang Attribute", value: selectedPage.htmlSizeBytes ? selectedPage.lang : null },
+            {
+              label: "Hreflang",
+              value: selectedPage.hreflangValues.length > 0 ? selectedPage.hreflangValues.join(", ") : null,
+            },
+            { label: "Internal Nofollow Links", value: selectedPage.internalNofollowCount },
+            {
+              label: "Text/HTML Ratio",
+              value: selectedPage.htmlSizeBytes ? `${selectedPage.textRatioPct.toFixed(1)}%` : null,
+            },
+            { label: "X-Robots-Tag", value: selectedPage.xRobotsTag },
+            { label: "Viewport", value: selectedPage.viewport },
+            { label: "Open Graph Tags", value: selectedPage.hasOpenGraph ? "Yes" : "No" },
+            { label: "Twitter Card Tags", value: selectedPage.hasTwitterCard ? "Yes" : "No" },
+            { label: "Canonical Tag Count", value: selectedPage.canonicalCount },
+            { label: "Discovered Via Sitemap", value: selectedPage.discoveredViaSitemap ? "Yes" : "No" },
+            {
+              label: "Redirect Chain",
+              value: selectedPage.redirectChain.length > 0 ? selectedPage.redirectChain.join(" → ") : null,
+            },
+            {
+              label: "Structured Data Types",
+              value: selectedPage.structuredDataTypes.length > 0 ? selectedPage.structuredDataTypes.join(", ") : null,
+            },
+            {
+              label: "Structured Data Errors",
+              value: selectedPage.structuredDataErrors.length > 0 ? selectedPage.structuredDataErrors.join("; ") : null,
+              isError: true,
+            },
+            {
+              label: "Accessibility Violations",
+              value:
+                selectedPage.accessibilityViolations.length > 0
+                  ? selectedPage.accessibilityViolations.map((v) => `${v.id} (${v.nodeCount} nodes)`).join("; ")
+                  : null,
+              isError: true,
+            },
           ]}
         />
       )}
@@ -396,6 +556,7 @@ function App() {
         <DetailModal
           title={selectedResource.url}
           onClose={() => setSelectedResource(null)}
+          issues={selectedResourceIssues}
           fields={[
             { label: "URL", value: selectedResource.url },
             { label: "Type", value: selectedResource.resourceType },
@@ -404,6 +565,7 @@ function App() {
             { label: "Source Page", value: selectedResource.sourcePage },
             { label: "Internal", value: selectedResource.isInternal ? "Yes" : "No" },
             { label: "Alt Text", value: selectedResource.altText },
+            { label: "Insecure", value: selectedResource.isInsecure ? "Yes" : "No" },
             { label: "Error", value: selectedResource.error, isError: true },
           ]}
         />
