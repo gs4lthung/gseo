@@ -8,6 +8,9 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 interface DataTableProps<T> {
   data: T[];
@@ -20,7 +23,7 @@ interface DataTableProps<T> {
 export function DataTable<T>({
   data,
   columns,
-  rowHeight = 30,
+  rowHeight = 34,
   emptyLabel = "No rows yet",
   onRowClick,
 }: DataTableProps<T>) {
@@ -48,66 +51,67 @@ export function DataTable<T>({
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
   const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
-  const paddingBottom =
-    virtualRows.length > 0 ? totalSize - virtualRows[virtualRows.length - 1].end : 0;
+  const paddingBottom = virtualRows.length > 0 ? totalSize - virtualRows[virtualRows.length - 1].end : 0;
 
   return (
-    <div className="table-wrap" ref={parentRef}>
-      <table>
-        <thead>
+    <div className="h-full overflow-auto rounded-lg ring-1 ring-foreground/10" ref={parentRef}>
+      <Table className="border-separate border-spacing-0">
+        <TableHeader className="sticky top-0 z-10 bg-card">
           {table.getHeaderGroups().map((hg) => (
-            <tr key={hg.id}>
+            <TableRow key={hg.id} className="hover:bg-transparent">
               {hg.headers.map((h) => (
-                <th
+                <TableHead
                   key={h.id}
                   style={{ width: h.getSize() }}
                   onClick={h.column.getToggleSortingHandler()}
-                  className={h.column.getCanSort() ? "sortable" : ""}
+                  className={cn("border-b bg-card", h.column.getCanSort() && "cursor-pointer select-none")}
                 >
-                  {flexRender(h.column.columnDef.header, h.getContext())}
-                  {h.column.getIsSorted() === "asc" && " ▲"}
-                  {h.column.getIsSorted() === "desc" && " ▼"}
-                </th>
+                  <span className="inline-flex items-center gap-1">
+                    {flexRender(h.column.columnDef.header, h.getContext())}
+                    {h.column.getIsSorted() === "asc" && <ChevronUp className="size-3.5" />}
+                    {h.column.getIsSorted() === "desc" && <ChevronDown className="size-3.5" />}
+                  </span>
+                </TableHead>
               ))}
-            </tr>
+            </TableRow>
           ))}
-        </thead>
-        <tbody>
+        </TableHeader>
+        <TableBody>
           {rows.length === 0 && (
-            <tr>
-              <td className="empty-row" colSpan={columns.length}>
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
                 {emptyLabel}
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           )}
           {paddingTop > 0 && (
-            <tr style={{ height: paddingTop }}>
-              <td colSpan={columns.length} />
-            </tr>
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={columns.length} style={{ height: paddingTop, padding: 0 }} />
+            </TableRow>
           )}
           {virtualRows.map((vRow) => {
             const row = rows[vRow.index];
             return (
-              <tr
+              <TableRow
                 key={row.id}
-                className={onRowClick ? "clickable-row" : undefined}
+                className={cn(onRowClick && "cursor-pointer")}
                 onClick={onRowClick ? () => onRowClick(row.original) : undefined}
               >
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} style={{ width: cell.column.getSize() }}>
+                  <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
+                  </TableCell>
                 ))}
-              </tr>
+              </TableRow>
             );
           })}
           {paddingBottom > 0 && (
-            <tr style={{ height: paddingBottom }}>
-              <td colSpan={columns.length} />
-            </tr>
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={columns.length} style={{ height: paddingBottom, padding: 0 }} />
+            </TableRow>
           )}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

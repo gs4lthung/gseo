@@ -3,9 +3,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { ColumnDef } from "@tanstack/react-table";
-import "./App.css";
-import { CrawlForm } from "./components/CrawlForm";
-import { SummaryBar } from "./components/SummaryBar";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { UrlCombobox } from "@/components/url-combobox";
+import { CrawlActions } from "@/components/crawl-actions";
+import { CrawlOptionsSheet } from "@/components/crawl-options-sheet";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { Overview } from "./components/Overview";
 import { DataTable } from "./components/DataTable";
 import { DetailModal } from "./components/DetailModal";
 import { SiteInfoPanel } from "./components/SiteInfoPanel";
@@ -33,7 +39,7 @@ import {
 } from "./lib/filters";
 import { ISSUE_SOLUTIONS } from "./lib/issueSolutions";
 
-type Tab = "pages" | "resources";
+type Tab = "overview" | "pages" | "resources";
 
 const pageColumns: ColumnDef<PageResult, any>[] = [
   { accessorKey: "url", header: "URL", size: 360 },
@@ -168,8 +174,7 @@ function App() {
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [siteInfo, setSiteInfo] = useState<SiteInfo | null>(null);
-  const [tab, setTab] = useState<Tab>("pages");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("overview");
   const [selectedPage, setSelectedPage] = useState<PageResult | null>(null);
   const [selectedResource, setSelectedResource] = useState<ResourceResult | null>(null);
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -239,7 +244,7 @@ function App() {
         setProgress((prev) => (prev ? { ...prev, running: false, paused: false } : prev));
       });
       await registerListener<string>("crawl://error", (payload) => {
-        setErrorMsg(payload);
+        toast.error(payload);
         setRunning(false);
       });
     })();
@@ -255,7 +260,6 @@ function App() {
     setPages([]);
     setResources([]);
     setProgress(null);
-    setErrorMsg(null);
     setFilter("all");
     setPaused(false);
     setSiteInfo(null);
@@ -266,7 +270,7 @@ function App() {
     try {
       await invoke("start_crawl", { config });
     } catch (err) {
-      setErrorMsg(String(err));
+      toast.error(String(err));
       setRunning(false);
     }
   }, [config]);
@@ -275,7 +279,7 @@ function App() {
     try {
       await invoke("stop_crawl");
     } catch (err) {
-      setErrorMsg(String(err));
+      toast.error(String(err));
     }
   }, []);
 
@@ -284,7 +288,7 @@ function App() {
     try {
       await invoke("pause_crawl");
     } catch (err) {
-      setErrorMsg(String(err));
+      toast.error(String(err));
       setPaused(false);
     }
   }, []);
@@ -294,12 +298,12 @@ function App() {
     try {
       await invoke("resume_crawl");
     } catch (err) {
-      setErrorMsg(String(err));
+      toast.error(String(err));
       setPaused(true);
     }
   }, []);
 
-  const handleExport = useCallback(async (what: Tab) => {
+  const handleExport = useCallback(async (what: "pages" | "resources") => {
     try {
       const path = await save({
         filters: [{ name: "CSV", extensions: ["csv"] }],
@@ -308,7 +312,7 @@ function App() {
       if (!path) return;
       await invoke("export_csv", { path, what });
     } catch (err) {
-      setErrorMsg(String(err));
+      toast.error(String(err));
     }
   }, []);
 
@@ -321,7 +325,7 @@ function App() {
       if (!path) return;
       await invoke("save_crawl", { path, startUrl: config.startUrl });
     } catch (err) {
-      setErrorMsg(String(err));
+      toast.error(String(err));
     }
   }, [config.startUrl]);
 
@@ -340,11 +344,9 @@ function App() {
       setFilter("all");
       setConfig((prev) => ({ ...prev, startUrl: snapshot.startUrl }));
     } catch (err) {
-      setErrorMsg(String(err));
+      toast.error(String(err));
     }
   }, []);
-
-  const activeCount = useMemo(() => (tab === "pages" ? pages.length : resources.length), [tab, pages, resources]);
 
   const duplicateTitleSet = useMemo(() => getDuplicateTitleSet(pages), [pages]);
   const duplicateContentSet = useMemo(() => getDuplicateContentSet(pages), [pages]);
@@ -380,100 +382,113 @@ function App() {
     });
   }, []);
 
+  const exportTab: "pages" | "resources" = tab === "resources" ? "resources" : "pages";
+  const exportCount = exportTab === "resources" ? resources.length : pages.length;
+
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>GSEO Crawler</h1>
-        <CrawlForm
-          config={config}
-          onChange={setConfig}
+    <div className="flex h-screen flex-col">
+      <header className="flex items-center gap-2.5 border-b bg-card px-4 py-2.5">
+        <h1 className="text-sm font-semibold whitespace-nowrap">GSEO Crawler</h1>
+        <UrlCombobox
+          value={config.startUrl}
+          disabled={running}
+          onChange={(startUrl) => setConfig((c) => ({ ...c, startUrl }))}
+          onSubmit={handleStart}
+        />
+        <CrawlActions
           running={running}
           paused={paused}
+          canStart={!!config.startUrl}
           onStart={handleStart}
           onStop={handleStop}
           onPause={handlePause}
           onResume={handleResume}
         />
+        <CrawlOptionsSheet config={config} running={running} onChange={setConfig} />
+        <div className="flex-1" />
+        <ThemeToggle />
       </header>
 
-      {siteInfo && <SiteInfoPanel siteInfo={siteInfo} />}
-
-      <SummaryBar
-        pages={pages}
-        resources={resources}
-        linkedUrls={linkedUrlSet}
-        duplicateTitles={duplicateTitleSet}
-        duplicateContent={duplicateContentSet}
-        duplicateMeta={duplicateMetaSet}
-        canonicalStatusMap={canonicalStatusMap}
-        progress={progress}
-        running={running}
-        paused={paused}
-        activeFilter={filter}
-        onSelectFilter={handleSelectFilter}
-      />
-
-      {errorMsg && (
-        <div className="error-banner">
-          {errorMsg}
-          <button onClick={() => setErrorMsg(null)}>×</button>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => {
+          setTab(v as Tab);
+          setFilter("all");
+        }}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4"
+      >
+        <div className="flex items-center gap-2.5">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="pages">Pages ({pages.length})</TabsTrigger>
+            <TabsTrigger value="resources">Links & Images ({resources.length})</TabsTrigger>
+          </TabsList>
+          {filter !== "all" && (
+            <Badge variant="secondary" className="h-auto gap-1.5 py-1">
+              Filtered
+              <button
+                type="button"
+                className="ml-0.5 hover:text-foreground"
+                onClick={() => setFilter("all")}
+                aria-label="Clear filter"
+              >
+                ×
+              </button>
+            </Badge>
+          )}
+          <div className="flex-1" />
+          <Button variant="outline" size="sm" onClick={handleOpenCrawl} disabled={running}>
+            Open Crawl…
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSaveCrawl}
+            disabled={pages.length === 0 && resources.length === 0}
+          >
+            Save Crawl…
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleExport(exportTab)} disabled={exportCount === 0}>
+            Export {exportTab === "pages" ? "Pages" : "Resources"} CSV
+          </Button>
         </div>
-      )}
 
-      <div className="tabs">
-        <button
-          className={tab === "pages" ? "tab active" : "tab"}
-          onClick={() => {
-            setTab("pages");
-            setFilter("all");
-          }}
-        >
-          Pages ({pages.length})
-        </button>
-        <button
-          className={tab === "resources" ? "tab active" : "tab"}
-          onClick={() => {
-            setTab("resources");
-            setFilter("all");
-          }}
-        >
-          Links & Images ({resources.length})
-        </button>
-        {filter !== "all" && (
-          <span className="filter-chip">
-            Filtered
-            <button onClick={() => setFilter("all")}>Clear ×</button>
-          </span>
-        )}
-        <div className="tab-spacer" />
-        <button className="btn" onClick={handleOpenCrawl} disabled={running}>
-          Open Crawl…
-        </button>
-        <button className="btn" onClick={handleSaveCrawl} disabled={pages.length === 0 && resources.length === 0}>
-          Save Crawl…
-        </button>
-        <button className="btn" onClick={() => handleExport(tab)} disabled={activeCount === 0}>
-          Export {tab === "pages" ? "Pages" : "Resources"} CSV
-        </button>
-      </div>
+        <TabsContent value="overview" className="flex flex-col gap-4 overflow-y-auto">
+          {siteInfo && <SiteInfoPanel siteInfo={siteInfo} />}
+          <Overview
+            pages={pages}
+            resources={resources}
+            linkedUrls={linkedUrlSet}
+            duplicateTitles={duplicateTitleSet}
+            duplicateContent={duplicateContentSet}
+            duplicateMeta={duplicateMetaSet}
+            canonicalStatusMap={canonicalStatusMap}
+            progress={progress}
+            running={running}
+            paused={paused}
+            activeFilter={filter}
+            onSelectFilter={handleSelectFilter}
+          />
+        </TabsContent>
 
-      <main className="table-area">
-        {tab === "pages" ? (
+        <TabsContent value="pages" className="min-h-0 flex-1">
           <DataTable
             data={filteredPages}
             columns={pageColumns}
             emptyLabel="No pages crawled yet — start a crawl above."
             onRowClick={setSelectedPage}
           />
-        ) : (
+        </TabsContent>
+
+        <TabsContent value="resources" className="min-h-0 flex-1">
           <DataTable
             data={filteredResources}
             columns={resourceColumns}
             emptyLabel="No external links or images checked yet."
             onRowClick={setSelectedResource}
           />
-        )}
-      </main>
+        </TabsContent>
+      </Tabs>
 
       {selectedPage && (
         <DetailModal

@@ -1,8 +1,16 @@
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import type { SiteInfo } from "../types";
 
 interface SiteInfoPanelProps {
   siteInfo: SiteInfo;
 }
+
+const TONE_CLASSES: Record<"ok" | "warn" | "bad", string> = {
+  ok: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  warn: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  bad: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
+};
 
 export function SiteInfoPanel({ siteInfo }: SiteInfoPanelProps) {
   const chips: Array<{ label: string; value: string; tone?: "ok" | "warn" | "bad" }> = [];
@@ -30,12 +38,16 @@ export function SiteInfoPanel({ siteInfo }: SiteInfoPanelProps) {
   }
 
   return (
-    <div className="site-info-panel">
+    <div className="flex flex-wrap gap-2">
       {chips.map((c) => (
-        <span key={c.label} className={`site-info-chip${c.tone ? ` site-info-${c.tone}` : ""}`}>
-          <span className="site-info-label">{c.label}</span>
-          <span className="site-info-value">{c.value}</span>
-        </span>
+        <Badge
+          key={c.label}
+          variant="outline"
+          className={cn("h-auto gap-1.5 py-1 font-normal", c.tone && TONE_CLASSES[c.tone])}
+        >
+          <span className="font-medium">{c.label}</span>
+          <span className="max-w-[24rem] truncate">{c.value}</span>
+        </Badge>
       ))}
     </div>
   );

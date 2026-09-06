@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { cn } from "@/lib/utils";
 import type { CrawlProgress, PageResult, ResourceResult } from "../types";
 import {
   type FilterKey,
@@ -8,7 +11,7 @@ import {
   TITLE_MIN_LENGTH,
 } from "../lib/filters";
 
-interface SummaryBarProps {
+interface OverviewProps {
   pages: PageResult[];
   resources: ResourceResult[];
   linkedUrls: Set<string>;
@@ -33,40 +36,41 @@ interface StatDef {
   tone?: "ok" | "warn" | "bad";
 }
 
-// Filter keys that live inside the collapsible Issues panel rather than the
-// always-visible response-code row (so opening the panel can be driven by
-// whichever filter is currently active, even after a page reload/HMR).
-const ISSUE_GROUP_KEYS: FilterKey[] = [
-  "missingTitle",
-  "duplicateTitles",
-  "titleTooShort",
-  "titleTooLong",
-  "missingMeta",
-  "duplicateMeta",
-  "h1Issues",
-  "duplicateContent",
-  "lowTextRatio",
-  "missingAlt",
-  "nofollowLinks",
-  "unminified",
-  "broken",
-  "insecureLinks",
-  "missingHsts",
-  "missingLang",
-  "missingHreflang",
-  "multipleCanonical",
-  "brokenCanonicalTarget",
-  "slowResponse",
-  "missingViewport",
-  "missingSocialTags",
-  "redirectChainTooLong",
-  "orphanPage",
-  "structuredDataErrors",
-  "missingStructuredData",
-  "accessibilityIssues",
-];
+const TONE_TEXT: Record<"ok" | "warn" | "bad", string> = {
+  ok: "text-emerald-600 dark:text-emerald-400",
+  warn: "text-amber-600 dark:text-amber-400",
+  bad: "text-red-600 dark:text-red-400",
+};
 
-export function SummaryBar({
+function StatTile({
+  active,
+  value,
+  label,
+  tone,
+  onClick,
+}: {
+  active: boolean;
+  value: number;
+  label: string;
+  tone?: "ok" | "warn" | "bad";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex flex-col items-start gap-0 rounded-lg px-3 py-1.5 text-left ring-1 ring-foreground/10 transition-colors hover:bg-muted/60",
+        active && "bg-muted ring-ring/50",
+      )}
+    >
+      <span className={cn("text-lg leading-tight font-semibold", tone && TONE_TEXT[tone])}>{value}</span>
+      <span className="text-xs whitespace-nowrap text-muted-foreground">{label}</span>
+    </button>
+  );
+}
+
+export function Overview({
   pages,
   resources,
   linkedUrls,
@@ -79,13 +83,7 @@ export function SummaryBar({
   paused,
   activeFilter,
   onSelectFilter,
-}: SummaryBarProps) {
-  const [issuesOpen, setIssuesOpen] = useState(false);
-
-  useEffect(() => {
-    if (ISSUE_GROUP_KEYS.includes(activeFilter)) setIssuesOpen(true);
-  }, [activeFilter]);
-
+}: OverviewProps) {
   const summary = useMemo(() => {
     const byStatus: Record<string, number> = {};
     let missingTitle = 0;
@@ -186,21 +184,6 @@ export function SummaryBar({
     };
   }, [pages, resources, linkedUrls, duplicateTitleSet, duplicateContentSet, duplicateMetaSet, canonicalStatusMap]);
 
-  function stat(key: FilterKey, value: number, label: string, tone?: "ok" | "warn" | "bad") {
-    const active = activeFilter === key;
-    return (
-      <button
-        key={key}
-        type="button"
-        className={`stat${active ? " stat-active" : ""}`}
-        onClick={() => onSelectFilter(key)}
-      >
-        <span className="stat-value">{value}</span>
-        <span className={`stat-label${tone ? ` ${tone}` : ""}`}>{label}</span>
-      </button>
-    );
-  }
-
   const groups: Array<{ title: string; items: StatDef[] }> = [
     {
       title: "Titles",
@@ -281,54 +264,86 @@ export function SummaryBar({
 
   const totalIssues = groups.flatMap((g) => g.items).reduce((sum, i) => sum + i.value, 0);
 
+  const activeGroupTitle = useMemo(
+    () => groups.find((g) => g.items.some((i) => i.key === activeFilter))?.title,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeFilter, summary],
+  );
+
+  const [openGroups, setOpenGroups] = useState<string[]>([]);
+  useEffect(() => {
+    if (activeGroupTitle) {
+      setOpenGroups((prev) => (prev.includes(activeGroupTitle) ? prev : [...prev, activeGroupTitle]));
+    }
+  }, [activeGroupTitle]);
+
   return (
-    <div className="summary-bar-wrap">
-      <div className="summary-bar">
-        <div className="stat stat-static">
-          <span className="stat-value">{pages.length}</span>
-          <span className="stat-label">Pages crawled</span>
-        </div>
-        <div className="stat stat-static">
-          <span className="stat-value">{progress?.queued ?? 0}</span>
-          <span className="stat-label">Queued</span>
-        </div>
-        {stat("2xx", summary.byStatus["2xx"] ?? 0, "2xx", "ok")}
-        {stat("3xx", summary.byStatus["3xx"] ?? 0, "3xx", "warn")}
-        {stat(
-          "4xx5xx",
-          (summary.byStatus["4xx"] ?? 0) + (summary.byStatus["5xx"] ?? 0) + (summary.byStatus["error"] ?? 0),
-          "4xx/5xx/Error",
-          "bad",
-        )}
-        <div className="summary-spacer" />
-        <button type="button" className="issues-toggle" onClick={() => setIssuesOpen((o) => !o)}>
-          {totalIssues > 0 ? (
-            <>
-              <span className="issues-dot" /> {totalIssues} issue{totalIssues === 1 ? "" : "s"}
-            </>
-          ) : (
-            "No issues found"
-          )}
-          <span className="issues-caret">{issuesOpen ? "▲" : "▼"}</span>
-        </button>
-        <div className="status-pill">
-          <span className={`dot ${running && !paused ? "running" : "idle"}`} />
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <StatTile active={false} value={pages.length} label="Pages crawled" onClick={() => {}} />
+        <StatTile active={false} value={progress?.queued ?? 0} label="Queued" onClick={() => {}} />
+        <StatTile
+          active={activeFilter === "2xx"}
+          value={summary.byStatus["2xx"] ?? 0}
+          label="2xx"
+          tone="ok"
+          onClick={() => onSelectFilter("2xx")}
+        />
+        <StatTile
+          active={activeFilter === "3xx"}
+          value={summary.byStatus["3xx"] ?? 0}
+          label="3xx"
+          tone="warn"
+          onClick={() => onSelectFilter("3xx")}
+        />
+        <StatTile
+          active={activeFilter === "4xx5xx"}
+          value={(summary.byStatus["4xx"] ?? 0) + (summary.byStatus["5xx"] ?? 0) + (summary.byStatus["error"] ?? 0)}
+          label="4xx/5xx/Error"
+          tone="bad"
+          onClick={() => onSelectFilter("4xx5xx")}
+        />
+        <div className="flex-1" />
+        <Badge variant={totalIssues > 0 ? "destructive" : "secondary"} className="h-auto py-1">
+          {totalIssues > 0 ? `${totalIssues} issue${totalIssues === 1 ? "" : "s"}` : "No issues found"}
+        </Badge>
+        <Badge variant="outline" className="h-auto gap-1.5 py-1">
+          <span className={cn("size-1.5 rounded-full", running && !paused ? "bg-emerald-500" : "bg-muted-foreground")} />
           {running ? (paused ? "Paused" : "Crawling…") : "Idle"}
-        </div>
+        </Badge>
       </div>
 
-      {issuesOpen && (
-        <div className="issues-panel">
-          {groups.map((group) => (
-            <div className="issue-group" key={group.title}>
-              <div className="issue-group-title">{group.title}</div>
-              <div className="issue-group-items">
-                {group.items.map((item) => stat(item.key, item.value, item.label, item.tone))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <Accordion type="multiple" value={openGroups} onValueChange={setOpenGroups}>
+        {groups.map((group) => {
+          const groupTotal = group.items.reduce((sum, i) => sum + i.value, 0);
+          return (
+            <AccordionItem key={group.title} value={group.title}>
+              <AccordionTrigger>
+                <span className="flex items-center gap-2">
+                  {group.title}
+                  <Badge variant={groupTotal > 0 ? "secondary" : "outline"} className="h-auto py-0">
+                    {groupTotal}
+                  </Badge>
+                </span>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="flex flex-wrap gap-2">
+                  {group.items.map((item) => (
+                    <StatTile
+                      key={item.key}
+                      active={activeFilter === item.key}
+                      value={item.value}
+                      label={item.label}
+                      tone={item.tone}
+                      onClick={() => onSelectFilter(item.key)}
+                    />
+                  ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          );
+        })}
+      </Accordion>
     </div>
   );
 }
