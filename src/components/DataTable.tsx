@@ -14,9 +14,16 @@ interface DataTableProps<T> {
   columns: ColumnDef<T, any>[];
   rowHeight?: number;
   emptyLabel?: string;
+  onRowClick?: (row: T) => void;
 }
 
-export function DataTable<T>({ data, columns, rowHeight = 30, emptyLabel = "No rows yet" }: DataTableProps<T>) {
+export function DataTable<T>({
+  data,
+  columns,
+  rowHeight = 30,
+  emptyLabel = "No rows yet",
+  onRowClick,
+}: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -81,7 +88,11 @@ export function DataTable<T>({ data, columns, rowHeight = 30, emptyLabel = "No r
           {virtualRows.map((vRow) => {
             const row = rows[vRow.index];
             return (
-              <tr key={row.id}>
+              <tr
+                key={row.id}
+                className={onRowClick ? "clickable-row" : undefined}
+                onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+              >
                 {row.getVisibleCells().map((cell) => (
                   <td key={cell.id} style={{ width: cell.column.getSize() }}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

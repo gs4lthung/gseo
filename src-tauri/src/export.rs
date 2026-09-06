@@ -26,6 +26,10 @@ pub fn export_pages_csv(pages: &[PageResult], path: &str) -> Result<(), Box<dyn 
         "Internal Links",
         "External Links",
         "Images",
+        "Size (bytes)",
+        "Minified",
+        "Minify Savings (%)",
+        "JS Rendered",
         "Error",
     ])?;
 
@@ -51,6 +55,10 @@ pub fn export_pages_csv(pages: &[PageResult], path: &str) -> Result<(), Box<dyn 
             p.internal_link_count.to_string(),
             p.external_link_count.to_string(),
             p.image_count.to_string(),
+            p.html_size_bytes.to_string(),
+            p.is_minified.to_string(),
+            format!("{:.0}", p.minify_savings_pct),
+            p.rendered.to_string(),
             p.error.clone().unwrap_or_default(),
         ])?;
     }

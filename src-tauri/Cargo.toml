@@ -29,6 +29,8 @@ scraper = "0.20"
 url = "2"
 dashmap = "6"
 csv = "1"
+quick-xml = "0.41"
+headless_chrome = "1"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

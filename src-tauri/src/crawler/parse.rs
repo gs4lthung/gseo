@@ -12,6 +12,65 @@ pub struct ParsedPage {
     pub internal_links: Vec<Url>,
     pub external_links: Vec<Url>,
     pub images: Vec<(Url, Option<String>)>,
+    pub html_size_bytes: usize,
+    pub minify_savings_pct: f64,
+    pub is_minified: bool,
+}
+
+/// Below this estimated re-minification saving, a page is considered already minified.
+const MINIFIED_SAVINGS_THRESHOLD_PCT: f64 = 10.0;
+
+fn strip_html_comments(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < s.len() {
+        if s[i..].starts_with("<!--") {
+            match s[i..].find("-->") {
+                Some(end) => {
+                    i += end + 3;
+                    continue;
+                }
+                None => break,
+            }
+        }
+        let ch = s[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn collapse_whitespace(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut last_was_space = false;
+    for ch in s.chars() {
+        if ch.is_whitespace() {
+            if !last_was_space {
+                out.push(' ');
+            }
+            last_was_space = true;
+        } else {
+            out.push(ch);
+            last_was_space = false;
+        }
+    }
+    out.trim().to_string()
+}
+
+/// Estimates how much smaller `body` could get from stripping HTML comments and
+/// collapsing whitespace runs. A high savings percentage means the page was served
+/// unminified; a low one means it was already minified (or was already tiny/dense).
+fn estimate_minify_savings_pct(body: &str) -> f64 {
+    let original_len = body.len();
+    if original_len == 0 {
+        return 0.0;
+    }
+    let minified = collapse_whitespace(&strip_html_comments(body));
+    let minified_len = minified.len();
+    if minified_len >= original_len {
+        return 0.0;
+    }
+    (1.0 - (minified_len as f64 / original_len as f64)) * 100.0
 }
 
 fn resolve_url(base: &Url, href: &str) -> Option<Url> {
@@ -133,6 +192,10 @@ pub fn parse_page(body: &str, base: &Url) -> ParsedPage {
         }
     }
 
+    let html_size_bytes = body.len();
+    let minify_savings_pct = estimate_minify_savings_pct(body);
+    let is_minified = minify_savings_pct < MINIFIED_SAVINGS_THRESHOLD_PCT;
+
     ParsedPage {
         title,
         meta_description,
@@ -144,5 +207,8 @@ pub fn parse_page(body: &str, base: &Url) -> ParsedPage {
         internal_links,
         external_links,
         images,
+        html_size_bytes,
+        minify_savings_pct,
+        is_minified,
     }
 }

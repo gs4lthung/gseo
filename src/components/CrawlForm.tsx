@@ -4,11 +4,23 @@ interface CrawlFormProps {
   config: CrawlConfig;
   onChange: (config: CrawlConfig) => void;
   running: boolean;
+  paused: boolean;
   onStart: () => void;
   onStop: () => void;
+  onPause: () => void;
+  onResume: () => void;
 }
 
-export function CrawlForm({ config, onChange, running, onStart, onStop }: CrawlFormProps) {
+export function CrawlForm({
+  config,
+  onChange,
+  running,
+  paused,
+  onStart,
+  onStop,
+  onPause,
+  onResume,
+}: CrawlFormProps) {
   function set<K extends keyof CrawlConfig>(key: K, value: CrawlConfig[K]) {
     onChange({ ...config, [key]: value });
   }
@@ -31,9 +43,20 @@ export function CrawlForm({ config, onChange, running, onStart, onStop }: CrawlF
           Start Crawl
         </button>
       ) : (
-        <button className="btn danger" onClick={onStop}>
-          Stop
-        </button>
+        <>
+          {paused ? (
+            <button className="btn" onClick={onResume}>
+              Resume
+            </button>
+          ) : (
+            <button className="btn" onClick={onPause}>
+              Pause
+            </button>
+          )}
+          <button className="btn danger" onClick={onStop}>
+            Stop
+          </button>
+        </>
       )}
 
       <details className="options">
@@ -97,6 +120,33 @@ export function CrawlForm({ config, onChange, running, onStart, onStop }: CrawlF
               onChange={(e) => set("checkImages", e.target.checked)}
             />
             Check images
+          </label>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={config.respectRobots}
+              disabled={running}
+              onChange={(e) => set("respectRobots", e.target.checked)}
+            />
+            Respect robots.txt
+          </label>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={config.useSitemap}
+              disabled={running}
+              onChange={(e) => set("useSitemap", e.target.checked)}
+            />
+            Seed from sitemap.xml
+          </label>
+          <label className="checkbox-label" title="Renders each page with a headless Chrome instance before parsing. Requires Chrome/Chromium installed; much slower per page.">
+            <input
+              type="checkbox"
+              checked={config.renderJs}
+              disabled={running}
+              onChange={(e) => set("renderJs", e.target.checked)}
+            />
+            Render JavaScript (slow)
           </label>
           <label className="wide">
             User agent

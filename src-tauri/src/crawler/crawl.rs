@@ -1,6 +1,10 @@
 use super::parse::parse_page;
+use super::render;
+use super::robots::RobotsRules;
+use super::sitemap;
 use super::types::*;
 use dashmap::DashMap;
+use headless_chrome::Browser;
 use reqwest::Client;
 use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,42 +54,82 @@ fn indexability_for(
     "Indexable".to_string()
 }
 
-async fn fetch_and_parse(client: &Client, url: Url, depth: usize) -> PageFetchOutcome {
+#[allow(clippy::too_many_arguments)]
+fn empty_page_result(
+    url: &Url,
+    depth: usize,
+    status: Option<u16>,
+    status_text: String,
+    content_type: Option<String>,
+    redirect_url: Option<String>,
+    indexability: String,
+    response_time_ms: u64,
+    error: Option<String>,
+) -> PageResult {
+    PageResult {
+        url: url.to_string(),
+        depth,
+        status,
+        status_text,
+        content_type,
+        title: None,
+        title_length: 0,
+        meta_description: None,
+        meta_description_length: 0,
+        h1: None,
+        h1_count: 0,
+        word_count: 0,
+        canonical: None,
+        meta_robots: None,
+        redirect_url,
+        indexability,
+        response_time_ms,
+        internal_link_count: 0,
+        external_link_count: 0,
+        image_count: 0,
+        html_size_bytes: 0,
+        minify_savings_pct: 0.0,
+        is_minified: true,
+        rendered: false,
+        error,
+    }
+}
+
+fn robots_blocked_result(url: &Url, depth: usize) -> PageResult {
+    empty_page_result(
+        url,
+        depth,
+        None,
+        "Blocked".to_string(),
+        None,
+        None,
+        "Non-Indexable (robots.txt)".to_string(),
+        0,
+        None,
+    )
+}
+
+async fn fetch_and_parse(client: &Client, browser: Option<Arc<Browser>>, url: Url, depth: usize) -> PageFetchOutcome {
     let started = Instant::now();
+    let no_discoveries = || (vec![], vec![], vec![]);
 
     let resp = match client.get(url.clone()).send().await {
         Ok(r) => r,
         Err(e) => {
             let elapsed = started.elapsed().as_millis() as u64;
-            let result = PageResult {
-                url: url.to_string(),
+            let result = empty_page_result(
+                &url,
                 depth,
-                status: None,
-                status_text: "Error".to_string(),
-                content_type: None,
-                title: None,
-                title_length: 0,
-                meta_description: None,
-                meta_description_length: 0,
-                h1: None,
-                h1_count: 0,
-                word_count: 0,
-                canonical: None,
-                meta_robots: None,
-                redirect_url: None,
-                indexability: "Non-Indexable (Error)".to_string(),
-                response_time_ms: elapsed,
-                internal_link_count: 0,
-                external_link_count: 0,
-                image_count: 0,
-                error: Some(e.to_string()),
-            };
-            return PageFetchOutcome {
-                result,
-                discovered_internal: vec![],
-                discovered_external: vec![],
-                discovered_images: vec![],
-            };
+                None,
+                "Error".to_string(),
+                None,
+                None,
+                "Non-Indexable (Error)".to_string(),
+                elapsed,
+                Some(e.to_string()),
+            );
+            let (discovered_internal, discovered_external, discovered_images) = no_discoveries();
+            return PageFetchOutcome { result, discovered_internal, discovered_external, discovered_images };
         }
     };
 
@@ -111,70 +155,67 @@ async fn fetch_and_parse(client: &Client, url: Url, depth: usize) -> PageFetchOu
     if !is_html {
         let elapsed = started.elapsed().as_millis() as u64;
         let indexability = indexability_for(status, None, None, &url, &final_url);
-        let result = PageResult {
-            url: url.to_string(),
+        let result = empty_page_result(
+            &url,
             depth,
-            status: Some(status),
+            Some(status),
             status_text,
             content_type,
-            title: None,
-            title_length: 0,
-            meta_description: None,
-            meta_description_length: 0,
-            h1: None,
-            h1_count: 0,
-            word_count: 0,
-            canonical: None,
-            meta_robots: None,
             redirect_url,
             indexability,
-            response_time_ms: elapsed,
-            internal_link_count: 0,
-            external_link_count: 0,
-            image_count: 0,
-            error: None,
-        };
-        return PageFetchOutcome {
-            result,
-            discovered_internal: vec![],
-            discovered_external: vec![],
-            discovered_images: vec![],
-        };
+            elapsed,
+            None,
+        );
+        let (discovered_internal, discovered_external, discovered_images) = no_discoveries();
+        return PageFetchOutcome { result, discovered_internal, discovered_external, discovered_images };
     }
 
-    let body = match resp.text().await {
-        Ok(b) => b,
-        Err(e) => {
-            let elapsed = started.elapsed().as_millis() as u64;
-            let result = PageResult {
-                url: url.to_string(),
-                depth,
-                status: Some(status),
-                status_text,
-                content_type,
-                title: None,
-                title_length: 0,
-                meta_description: None,
-                meta_description_length: 0,
-                h1: None,
-                h1_count: 0,
-                word_count: 0,
-                canonical: None,
-                meta_robots: None,
-                redirect_url,
-                indexability: "Non-Indexable (Error)".to_string(),
-                response_time_ms: elapsed,
-                internal_link_count: 0,
-                external_link_count: 0,
-                image_count: 0,
-                error: Some(e.to_string()),
-            };
-            return PageFetchOutcome {
-                result,
-                discovered_internal: vec![],
-                discovered_external: vec![],
-                discovered_images: vec![],
-            };
+    let mut rendered = false;
+    let body: String = if let Some(browser) = browser {
+        match render::render_page(browser, final_url.clone()).await {
+            Ok(html) => {
+                rendered = true;
+                html
+            }
+            Err(_) => match resp.text().await {
+                Ok(b) => b,
+                Err(e) => {
+                    let elapsed = started.elapsed().as_millis() as u64;
+                    let result = empty_page_result(
+                        &url,
+                        depth,
+                        Some(status),
+                        status_text,
+                        content_type,
+                        redirect_url,
+                        "Non-Indexable (Error)".to_string(),
+                        elapsed,
+                        Some(e.to_string()),
+                    );
+                    let (discovered_internal, discovered_external, discovered_images) = no_discoveries();
+                    return PageFetchOutcome { result, discovered_internal, discovered_external, discovered_images };
+                }
+            },
+        }
+    } else {
+        match resp.text().await {
+            Ok(b) => b,
+            Err(e) => {
+                let elapsed = started.elapsed().as_millis() as u64;
+                let result = empty_page_result(
+                    &url,
+                    depth,
+                    Some(status),
+                    status_text,
+                    content_type,
+                    redirect_url,
+                    "Non-Indexable (Error)".to_string(),
+                    elapsed,
+                    Some(e.to_string()),
+                );
+                let (discovered_internal, discovered_external, discovered_images) = no_discoveries();
+                return PageFetchOutcome { result, discovered_internal, discovered_external, discovered_images };
+            }
         }
     };
 
@@ -216,6 +257,10 @@ async fn fetch_and_parse(client: &Client, url: Url, depth: usize) -> PageFetchOu
         internal_link_count: parsed.internal_links.len(),
         external_link_count: parsed.external_links.len(),
         image_count: parsed.images.len(),
+        html_size_bytes: parsed.html_size_bytes,
+        minify_savings_pct: parsed.minify_savings_pct,
+        is_minified: parsed.is_minified,
+        rendered,
         error: None,
     };
 
@@ -301,10 +346,12 @@ fn queue_resource_check(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_crawl(
     app: AppHandle,
     config: CrawlConfig,
     cancel: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
     pages: Arc<StdMutex<Vec<PageResult>>>,
     resources: Arc<DashMap<String, ResourceResult>>,
 ) {
@@ -329,6 +376,34 @@ pub async fn run_crawl(
         }
     };
 
+    let robots = if config.respect_robots {
+        Some(RobotsRules::fetch(&client, &start_url).await)
+    } else {
+        None
+    };
+
+    let browser: Option<Arc<Browser>> = if config.render_js {
+        match tauri::async_runtime::spawn_blocking(render::launch_browser).await {
+            Ok(Ok(b)) => Some(Arc::new(b)),
+            Ok(Err(e)) => {
+                let _ = app.emit(
+                    "crawl://error",
+                    format!("Could not launch headless Chrome for JS rendering ({e}). Continuing without it."),
+                );
+                None
+            }
+            Err(e) => {
+                let _ = app.emit(
+                    "crawl://error",
+                    format!("Could not launch headless Chrome for JS rendering ({e}). Continuing without it."),
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let resource_semaphore = Arc::new(Semaphore::new(config.concurrency.max(1)));
     let max_pages = config.max_pages.max(1);
 
@@ -337,6 +412,21 @@ pub async fn run_crawl(
     visited.insert(normalize(&start_url));
     frontier.push_back((start_url.clone(), 0));
     let mut scheduled_count: usize = 1;
+
+    if config.use_sitemap {
+        let sitemap_urls = sitemap::fetch_sitemap_urls(&client, &start_url).await;
+        for su in sitemap_urls {
+            if su.host_str() != start_url.host_str() {
+                continue;
+            }
+            let key = normalize(&su);
+            if !visited.contains(&key) && scheduled_count < max_pages {
+                visited.insert(key);
+                scheduled_count += 1;
+                frontier.push_back((su, 0));
+            }
+        }
+    }
 
     let mut page_tasks: JoinSet<PageFetchOutcome> = JoinSet::new();
     let mut resource_tasks: JoinSet<()> = JoinSet::new();
@@ -347,13 +437,46 @@ pub async fn run_crawl(
             break;
         }
 
-        while page_tasks.len() < config.concurrency && !frontier.is_empty() {
-            let (url, depth) = frontier.pop_front().unwrap();
-            let client = client.clone();
-            page_tasks.spawn(async move { fetch_and_parse(&client, url, depth).await });
+        let is_paused = paused.load(Ordering::SeqCst);
+
+        if !is_paused {
+            while page_tasks.len() < config.concurrency && !frontier.is_empty() {
+                let (url, depth) = frontier.pop_front().unwrap();
+
+                if let Some(robots) = &robots {
+                    if !robots.is_allowed(url.path()) {
+                        crawled_count += 1;
+                        let result = robots_blocked_result(&url, depth);
+                        let _ = app.emit("crawl://page", &result);
+                        pages.lock().unwrap().push(result);
+                        continue;
+                    }
+                }
+
+                let client = client.clone();
+                let browser = browser.clone();
+                page_tasks.spawn(async move { fetch_and_parse(&client, browser, url, depth).await });
+            }
         }
 
         if page_tasks.is_empty() && resource_tasks.is_empty() {
+            if is_paused && !frontier.is_empty() {
+                let resources_checked =
+                    resources.iter().filter(|r| r.status.is_some() || r.error.is_some()).count();
+                let _ = app.emit(
+                    "crawl://progress",
+                    CrawlProgress {
+                        crawled: crawled_count,
+                        queued: frontier.len(),
+                        resources_checked,
+                        resources_total: resources.len(),
+                        running: true,
+                        paused: true,
+                    },
+                );
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                continue;
+            }
             break;
         }
 
@@ -397,6 +520,7 @@ pub async fn run_crawl(
                         resources_checked,
                         resources_total: resources.len(),
                         running: true,
+                        paused: is_paused,
                     });
                 }
             }
@@ -409,6 +533,7 @@ pub async fn run_crawl(
                     resources_checked,
                     resources_total: resources.len(),
                     running: true,
+                    paused: is_paused,
                 });
             }
         }

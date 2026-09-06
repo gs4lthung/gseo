@@ -20,6 +20,10 @@ pub struct CrawlConfig {
     pub check_images: bool,
     #[serde(default)]
     pub respect_robots: bool,
+    #[serde(default)]
+    pub use_sitemap: bool,
+    #[serde(default)]
+    pub render_js: bool,
 }
 
 fn default_max_pages() -> usize {
@@ -41,14 +45,14 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceType {
     Link,
     Image,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageResult {
     pub url: String,
@@ -71,10 +75,14 @@ pub struct PageResult {
     pub internal_link_count: usize,
     pub external_link_count: usize,
     pub image_count: usize,
+    pub html_size_bytes: usize,
+    pub minify_savings_pct: f64,
+    pub is_minified: bool,
+    pub rendered: bool,
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceResult {
     pub url: String,
@@ -95,6 +103,7 @@ pub struct CrawlProgress {
     pub resources_checked: usize,
     pub resources_total: usize,
     pub running: bool,
+    pub paused: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -103,4 +112,13 @@ pub struct CrawlSummary {
     pub pages_crawled: usize,
     pub resources_checked: usize,
     pub cancelled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrawlSnapshot {
+    pub start_url: String,
+    pub saved_at_unix_ms: u64,
+    pub pages: Vec<PageResult>,
+    pub resources: Vec<ResourceResult>,
 }

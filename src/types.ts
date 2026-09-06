@@ -8,6 +8,8 @@ export interface CrawlConfig {
   checkExternalLinks: boolean;
   checkImages: boolean;
   respectRobots: boolean;
+  useSitemap: boolean;
+  renderJs: boolean;
 }
 
 export interface PageResult {
@@ -31,6 +33,10 @@ export interface PageResult {
   internalLinkCount: number;
   externalLinkCount: number;
   imageCount: number;
+  htmlSizeBytes: number;
+  minifySavingsPct: number;
+  isMinified: boolean;
+  rendered: boolean;
   error: string | null;
 }
 
@@ -53,12 +59,20 @@ export interface CrawlProgress {
   resourcesChecked: number;
   resourcesTotal: number;
   running: boolean;
+  paused: boolean;
 }
 
 export interface CrawlSummary {
   pagesCrawled: number;
   resourcesChecked: number;
   cancelled: boolean;
+}
+
+export interface CrawlSnapshot {
+  startUrl: string;
+  savedAtUnixMs: number;
+  pages: PageResult[];
+  resources: ResourceResult[];
 }
 
 export const DEFAULT_CONFIG: CrawlConfig = {
@@ -71,4 +85,6 @@ export const DEFAULT_CONFIG: CrawlConfig = {
   checkExternalLinks: true,
   checkImages: true,
   respectRobots: false,
+  useSitemap: false,
+  renderJs: false,
 };
