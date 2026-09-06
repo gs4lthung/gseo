@@ -6,16 +6,19 @@ import {
   SLOW_RESPONSE_THRESHOLD_MS,
   TITLE_MAX_LENGTH,
   TITLE_MIN_LENGTH,
-  getCanonicalStatusMap,
-  getDuplicateContentSet,
-  getDuplicateMetaSet,
-  getDuplicateTitleSet,
 } from "../lib/filters";
 
 interface SummaryBarProps {
   pages: PageResult[];
   resources: ResourceResult[];
   linkedUrls: Set<string>;
+  // Passed down from App rather than recomputed here — App already builds these
+  // once per `pages` change for table filtering, so reusing them avoids running
+  // the same O(n) scan over `pages` a second time on every crawl update.
+  duplicateTitles: Set<string>;
+  duplicateContent: Set<string>;
+  duplicateMeta: Set<string>;
+  canonicalStatusMap: Map<string, number | null>;
   progress: CrawlProgress | null;
   running: boolean;
   paused: boolean;
@@ -67,6 +70,10 @@ export function SummaryBar({
   pages,
   resources,
   linkedUrls,
+  duplicateTitles: duplicateTitleSet,
+  duplicateContent: duplicateContentSet,
+  duplicateMeta: duplicateMetaSet,
+  canonicalStatusMap,
   progress,
   running,
   paused,
@@ -105,8 +112,6 @@ export function SummaryBar({
     let missingStructuredData = 0;
     let accessibilityIssues = 0;
 
-    const canonicalStatusMap = getCanonicalStatusMap(pages);
-
     for (const p of pages) {
       const bucket = p.status ? `${Math.floor(p.status / 100)}xx` : "error";
       byStatus[bucket] = (byStatus[bucket] ?? 0) + 1;
@@ -143,9 +148,9 @@ export function SummaryBar({
       if (targetStatus === null || targetStatus === undefined || targetStatus >= 400) brokenCanonicalTarget++;
     }
 
-    const duplicateTitles = getDuplicateTitleSet(pages).size;
-    const duplicateContent = getDuplicateContentSet(pages).size;
-    const duplicateMeta = getDuplicateMetaSet(pages).size;
+    const duplicateTitles = duplicateTitleSet.size;
+    const duplicateContent = duplicateContentSet.size;
+    const duplicateMeta = duplicateMetaSet.size;
     const brokenResources = resources.filter((r) => (r.status && r.status >= 400) || r.error).length;
 
     return {
@@ -179,7 +184,7 @@ export function SummaryBar({
       missingStructuredData,
       accessibilityIssues,
     };
-  }, [pages, resources, linkedUrls]);
+  }, [pages, resources, linkedUrls, duplicateTitleSet, duplicateContentSet, duplicateMetaSet, canonicalStatusMap]);
 
   function stat(key: FilterKey, value: number, label: string, tone?: "ok" | "warn" | "bad") {
     const active = activeFilter === key;

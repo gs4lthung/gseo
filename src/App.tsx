@@ -402,6 +402,10 @@ function App() {
         pages={pages}
         resources={resources}
         linkedUrls={linkedUrlSet}
+        duplicateTitles={duplicateTitleSet}
+        duplicateContent={duplicateContentSet}
+        duplicateMeta={duplicateMetaSet}
+        canonicalStatusMap={canonicalStatusMap}
         progress={progress}
         running={running}
         paused={paused}

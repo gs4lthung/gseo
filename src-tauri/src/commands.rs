@@ -18,6 +18,7 @@ pub async fn start_crawl(
 
     state.pages.lock().unwrap().clear();
     state.resources.clear();
+    state.resources_checked.store(0, Ordering::SeqCst);
     state.cancel.store(false, Ordering::SeqCst);
     state.paused.store(false, Ordering::SeqCst);
     state.running.store(true, Ordering::SeqCst);
@@ -27,12 +28,20 @@ pub async fn start_crawl(
     let paused = state.paused.clone();
     let pages = state.pages.clone();
     let resources = state.resources.clone();
+    let resources_checked = state.resources_checked.clone();
     let app_handle = app.clone();
 
     tauri::async_runtime::spawn(async move {
-        let linked_urls =
-            crawl::run_crawl(app_handle.clone(), config, cancel.clone(), paused, pages.clone(), resources.clone())
-                .await;
+        let linked_urls = crawl::run_crawl(
+            app_handle.clone(),
+            config,
+            cancel.clone(),
+            paused,
+            pages.clone(),
+            resources.clone(),
+            resources_checked,
+        )
+        .await;
         running.store(false, Ordering::SeqCst);
         let cancelled = cancel.load(Ordering::SeqCst);
         let pages_crawled = pages.lock().unwrap().len();

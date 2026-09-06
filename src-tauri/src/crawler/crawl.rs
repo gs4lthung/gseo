@@ -9,7 +9,7 @@ use dashmap::DashMap;
 use headless_chrome::Browser;
 use reqwest::Client;
 use std::collections::{HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -59,83 +59,38 @@ fn indexability_for(
     "Indexable".to_string()
 }
 
-#[allow(clippy::too_many_arguments)]
-fn empty_page_result(
-    url: &Url,
-    depth: usize,
-    status: Option<u16>,
-    status_text: String,
-    content_type: Option<String>,
-    redirect_url: Option<String>,
-    indexability: String,
-    response_time_ms: u64,
-    hsts: bool,
-    x_robots_tag: Option<String>,
-    redirect_chain: Vec<String>,
-    error: Option<String>,
-) -> PageResult {
+fn robots_blocked_result(url: &Url, depth: usize) -> PageResult {
     PageResult {
         url: url.to_string(),
         depth,
-        status,
-        status_text,
-        content_type,
-        title: None,
-        title_length: 0,
-        meta_description: None,
-        meta_description_length: 0,
-        h1: None,
-        h1_count: 0,
-        word_count: 0,
-        canonical: None,
-        meta_robots: None,
-        redirect_url,
-        indexability,
-        response_time_ms,
-        internal_link_count: 0,
-        external_link_count: 0,
-        image_count: 0,
-        html_size_bytes: 0,
-        minify_savings_pct: 0.0,
+        status_text: "Blocked".to_string(),
+        indexability: "Non-Indexable (robots.txt)".to_string(),
+        // An unparsed page has no HTML to have skipped minifying.
         is_minified: true,
-        rendered: false,
-        hsts,
-        insecure_link_count: 0,
-        missing_alt_count: 0,
-        lang: None,
-        hreflang_values: Vec::new(),
-        internal_nofollow_count: 0,
-        text_ratio_pct: 0.0,
-        content_hash: String::new(),
-        x_robots_tag,
-        viewport: None,
-        has_open_graph: false,
-        has_twitter_card: false,
-        canonical_count: 0,
-        discovered_via_sitemap: false,
-        redirect_chain,
-        structured_data_types: Vec::new(),
-        structured_data_errors: Vec::new(),
-        accessibility_violations: Vec::new(),
-        error,
+        ..PageResult::default()
     }
 }
 
-fn robots_blocked_result(url: &Url, depth: usize) -> PageResult {
-    empty_page_result(
-        url,
-        depth,
-        None,
-        "Blocked".to_string(),
-        None,
-        None,
-        "Non-Indexable (robots.txt)".to_string(),
-        0,
-        false,
-        None,
-        Vec::new(),
-        None,
-    )
+fn empty_outcome(result: PageResult) -> PageFetchOutcome {
+    PageFetchOutcome {
+        result,
+        discovered_internal: Vec::new(),
+        discovered_external: Vec::new(),
+        discovered_images: Vec::new(),
+    }
+}
+
+/// Builds the outcome for a page whose fetch/read failed after the response headers
+/// were already known. `base` carries those headers (status, content-type, HSTS, etc. —
+/// see where it's built in `fetch_and_parse`), so both the JS-render fallback and the
+/// plain-fetch path can share this one path instead of each duplicating the same result.
+fn body_read_error_outcome(base: PageResult, elapsed: u64, error: reqwest::Error) -> PageFetchOutcome {
+    empty_outcome(PageResult {
+        indexability: "Non-Indexable (Error)".to_string(),
+        response_time_ms: elapsed,
+        error: Some(error.to_string()),
+        ..base
+    })
 }
 
 /// Result of manually following a redirect chain (the client this is used with must
@@ -177,7 +132,6 @@ async fn fetch_following_redirects(client: &Client, start: Url) -> Result<Follow
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn fetch_and_parse(
     client: &Client,
     browser: Option<Arc<Browser>>,
@@ -186,28 +140,21 @@ async fn fetch_and_parse(
     depth: usize,
 ) -> PageFetchOutcome {
     let started = Instant::now();
-    let no_discoveries = || (vec![], vec![], vec![]);
 
     let followed = match fetch_following_redirects(client, url.clone()).await {
         Ok(f) => f,
         Err(e) => {
             let elapsed = started.elapsed().as_millis() as u64;
-            let result = empty_page_result(
-                &url,
+            return empty_outcome(PageResult {
+                url: url.to_string(),
                 depth,
-                None,
-                "Error".to_string(),
-                None,
-                None,
-                "Non-Indexable (Error)".to_string(),
-                elapsed,
-                false,
-                None,
-                Vec::new(),
-                Some(e.to_string()),
-            );
-            let (discovered_internal, discovered_external, discovered_images) = no_discoveries();
-            return PageFetchOutcome { result, discovered_internal, discovered_external, discovered_images };
+                status_text: "Error".to_string(),
+                indexability: "Non-Indexable (Error)".to_string(),
+                response_time_ms: elapsed,
+                error: Some(e.to_string()),
+                is_minified: true,
+                ..PageResult::default()
+            });
         }
     };
 
@@ -241,25 +188,27 @@ async fn fetch_and_parse(
         None
     };
 
+    // Every response-derived field shared by the two outcomes below that never reach a
+    // parsed page (non-HTML content, or a body-read failure) — built once here so those
+    // paths and the JS-render fallback don't each repeat the same field list.
+    let base = PageResult {
+        url: url.to_string(),
+        depth,
+        status: Some(status),
+        status_text: status_text.clone(),
+        content_type: content_type.clone(),
+        redirect_url: redirect_url.clone(),
+        hsts,
+        x_robots_tag: x_robots_tag.clone(),
+        redirect_chain: redirect_chain.clone(),
+        is_minified: true,
+        ..PageResult::default()
+    };
+
     if !is_html {
         let elapsed = started.elapsed().as_millis() as u64;
         let indexability = indexability_for(status, None, None, x_robots_tag.as_deref(), &url, &final_url);
-        let result = empty_page_result(
-            &url,
-            depth,
-            Some(status),
-            status_text,
-            content_type,
-            redirect_url,
-            indexability,
-            elapsed,
-            hsts,
-            x_robots_tag,
-            redirect_chain,
-            None,
-        );
-        let (discovered_internal, discovered_external, discovered_images) = no_discoveries();
-        return PageFetchOutcome { result, discovered_internal, discovered_external, discovered_images };
+        return empty_outcome(PageResult { indexability, response_time_ms: elapsed, ..base });
     }
 
     let mut rendered = false;
@@ -275,22 +224,7 @@ async fn fetch_and_parse(
                 Ok(b) => b,
                 Err(e) => {
                     let elapsed = started.elapsed().as_millis() as u64;
-                    let result = empty_page_result(
-                        &url,
-                        depth,
-                        Some(status),
-                        status_text,
-                        content_type,
-                        redirect_url,
-                        "Non-Indexable (Error)".to_string(),
-                        elapsed,
-                        hsts,
-                        x_robots_tag,
-                        redirect_chain,
-                        Some(e.to_string()),
-                    );
-                    let (discovered_internal, discovered_external, discovered_images) = no_discoveries();
-                    return PageFetchOutcome { result, discovered_internal, discovered_external, discovered_images };
+                    return body_read_error_outcome(base, elapsed, e);
                 }
             },
         }
@@ -299,22 +233,7 @@ async fn fetch_and_parse(
             Ok(b) => b,
             Err(e) => {
                 let elapsed = started.elapsed().as_millis() as u64;
-                let result = empty_page_result(
-                    &url,
-                    depth,
-                    Some(status),
-                    status_text,
-                    content_type,
-                    redirect_url,
-                    "Non-Indexable (Error)".to_string(),
-                    elapsed,
-                    hsts,
-                    x_robots_tag,
-                    redirect_chain,
-                    Some(e.to_string()),
-                );
-                let (discovered_internal, discovered_external, discovered_images) = no_discoveries();
-                return PageFetchOutcome { result, discovered_internal, discovered_external, discovered_images };
+                return body_read_error_outcome(base, elapsed, e);
             }
         }
     };
@@ -411,25 +330,35 @@ async fn check_resource(client: &Client, url: &Url) -> (Option<u16>, String, Opt
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn queue_resource_check(
-    app: &AppHandle,
-    client: &Client,
-    semaphore: &Arc<Semaphore>,
-    resources: &Arc<DashMap<String, ResourceResult>>,
-    tasks: &mut JoinSet<()>,
+/// Shared handles every queued resource check needs. Bundled into one struct — built
+/// once per crawl — so `queue_resource_check` doesn't take a separate parameter for
+/// each of these on top of the ones describing the specific resource being checked.
+#[derive(Clone)]
+struct ResourceCheckCtx {
+    app: AppHandle,
+    client: Client,
+    semaphore: Arc<Semaphore>,
+    resources: Arc<DashMap<String, ResourceResult>>,
+    resources_checked: Arc<AtomicUsize>,
+}
+
+/// A single link or image discovered on a page, awaiting a status check.
+struct ResourceCandidate {
     url: Url,
     kind: ResourceType,
     source_page: String,
     alt_text: Option<String>,
     is_internal: bool,
     is_insecure: bool,
-) {
+}
+
+fn queue_resource_check(ctx: &ResourceCheckCtx, tasks: &mut JoinSet<()>, candidate: ResourceCandidate) {
+    let ResourceCandidate { url, kind, source_page, alt_text, is_internal, is_insecure } = candidate;
     let key = url.to_string();
-    if resources.contains_key(&key) {
+    if ctx.resources.contains_key(&key) {
         return;
     }
-    resources.insert(
+    ctx.resources.insert(
         key.clone(),
         ResourceResult {
             url: key.clone(),
@@ -444,14 +373,11 @@ fn queue_resource_check(
         },
     );
 
-    let app = app.clone();
-    let client = client.clone();
-    let semaphore = semaphore.clone();
-    let resources = resources.clone();
+    let ctx = ctx.clone();
 
     tasks.spawn(async move {
-        let _permit = semaphore.acquire_owned().await.unwrap();
-        let (status, status_text, error) = check_resource(&client, &url).await;
+        let _permit = ctx.semaphore.acquire_owned().await.unwrap();
+        let (status, status_text, error) = check_resource(&ctx.client, &url).await;
         let entry = ResourceResult {
             url: key.clone(),
             resource_type: kind,
@@ -463,12 +389,12 @@ fn queue_resource_check(
             is_insecure,
             error,
         };
-        resources.insert(key, entry.clone());
-        let _ = app.emit("crawl://resource", entry);
+        ctx.resources.insert(key, entry.clone());
+        ctx.resources_checked.fetch_add(1, Ordering::Relaxed);
+        let _ = ctx.app.emit("crawl://resource", entry);
     });
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn run_crawl(
     app: AppHandle,
     config: CrawlConfig,
@@ -476,6 +402,7 @@ pub async fn run_crawl(
     paused: Arc<AtomicBool>,
     pages: Arc<StdMutex<Vec<PageResult>>>,
     resources: Arc<DashMap<String, ResourceResult>>,
+    resources_checked: Arc<AtomicUsize>,
 ) -> Vec<String> {
     let start_url = match Url::parse(&config.start_url) {
         Ok(u) => u,
@@ -617,7 +544,13 @@ pub async fn run_crawl(
         None
     };
 
-    let resource_semaphore = Arc::new(Semaphore::new(config.concurrency.max(1)));
+    let resource_ctx = ResourceCheckCtx {
+        app: app.clone(),
+        client: client.clone(),
+        semaphore: Arc::new(Semaphore::new(config.concurrency.max(1))),
+        resources: resources.clone(),
+        resources_checked: resources_checked.clone(),
+    };
     let max_pages = config.max_pages.max(1);
 
     let mut visited: HashSet<String> = HashSet::new();
@@ -683,14 +616,12 @@ pub async fn run_crawl(
 
         if page_tasks.is_empty() && resource_tasks.is_empty() {
             if is_paused && !frontier.is_empty() {
-                let resources_checked =
-                    resources.iter().filter(|r| r.status.is_some() || r.error.is_some()).count();
                 let _ = app.emit(
                     "crawl://progress",
                     CrawlProgress {
                         crawled: crawled_count,
                         queued: frontier.len(),
-                        resources_checked,
+                        resources_checked: resources_checked.load(Ordering::Relaxed),
                         resources_total: resources.len(),
                         running: true,
                         paused: true,
@@ -732,22 +663,35 @@ pub async fn run_crawl(
                     if config.check_external_links {
                         for link in discovered_external {
                             let insecure = page_is_https && link.scheme() == "http";
-                            queue_resource_check(&app, &client, &resource_semaphore, &resources, &mut resource_tasks, link, ResourceType::Link, page_url.clone(), None, false, insecure);
+                            queue_resource_check(&resource_ctx, &mut resource_tasks, ResourceCandidate {
+                                url: link,
+                                kind: ResourceType::Link,
+                                source_page: page_url.clone(),
+                                alt_text: None,
+                                is_internal: false,
+                                is_insecure: insecure,
+                            });
                         }
                     }
                     if config.check_images {
                         for (img_url, alt) in discovered_images {
                             let internal = img_url.host_str() == start_url.host_str();
                             let insecure = page_is_https && img_url.scheme() == "http";
-                            queue_resource_check(&app, &client, &resource_semaphore, &resources, &mut resource_tasks, img_url, ResourceType::Image, page_url.clone(), alt, internal, insecure);
+                            queue_resource_check(&resource_ctx, &mut resource_tasks, ResourceCandidate {
+                                url: img_url,
+                                kind: ResourceType::Image,
+                                source_page: page_url.clone(),
+                                alt_text: alt,
+                                is_internal: internal,
+                                is_insecure: insecure,
+                            });
                         }
                     }
 
-                    let resources_checked = resources.iter().filter(|r| r.status.is_some() || r.error.is_some()).count();
                     let _ = app.emit("crawl://progress", CrawlProgress {
                         crawled: crawled_count,
                         queued: frontier.len(),
-                        resources_checked,
+                        resources_checked: resources_checked.load(Ordering::Relaxed),
                         resources_total: resources.len(),
                         running: true,
                         paused: is_paused,
@@ -756,11 +700,10 @@ pub async fn run_crawl(
             }
             res = resource_tasks.join_next(), if !resource_tasks.is_empty() => {
                 let _ = res;
-                let resources_checked = resources.iter().filter(|r| r.status.is_some() || r.error.is_some()).count();
                 let _ = app.emit("crawl://progress", CrawlProgress {
                     crawled: crawled_count,
                     queued: frontier.len(),
-                    resources_checked,
+                    resources_checked: resources_checked.load(Ordering::Relaxed),
                     resources_total: resources.len(),
                     running: true,
                     paused: is_paused,
