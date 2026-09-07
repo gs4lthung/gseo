@@ -582,6 +582,17 @@ pub async fn run_crawl(
     let mut resource_tasks: JoinSet<()> = JoinSet::new();
     let mut crawled_count: usize = 0;
 
+    // The site's robots.txt Crawl-delay (if any) always wins over a shorter configured
+    // delay — a user can politely ask to go slower than robots.txt requires, but not faster.
+    let politeness_delay = Duration::from_millis(
+        robots
+            .as_ref()
+            .and_then(|r| r.crawl_delay_ms)
+            .unwrap_or(0)
+            .max(config.delay_ms),
+    );
+    let mut last_dispatch: Option<Instant> = None;
+
     loop {
         if cancel.load(Ordering::SeqCst) {
             break;
@@ -601,6 +612,16 @@ pub async fn run_crawl(
                         pages.lock().unwrap().push(result);
                         continue;
                     }
+                }
+
+                if politeness_delay > Duration::ZERO {
+                    if let Some(last) = last_dispatch {
+                        let elapsed = last.elapsed();
+                        if elapsed < politeness_delay {
+                            tokio::time::sleep(politeness_delay - elapsed).await;
+                        }
+                    }
+                    last_dispatch = Some(Instant::now());
                 }
 
                 let page_client = page_client.clone();

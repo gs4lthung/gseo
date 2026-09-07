@@ -86,7 +86,22 @@ export function CrawlOptionsSheet({ config, running, onChange }: CrawlOptionsShe
                 onChange={(e) => set("timeoutSecs", Number(e.target.value) || 1)}
               />
             </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="delay">Delay between requests (ms)</Label>
+              <Input
+                id="delay"
+                type="number"
+                min={0}
+                value={config.delayMs}
+                disabled={running}
+                onChange={(e) => set("delayMs", Math.max(0, Number(e.target.value) || 0))}
+              />
+            </div>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Politeness pause before each new page request, on top of concurrency. If the site's robots.txt
+            specifies a longer Crawl-delay, that value is used instead.
+          </p>
 
           <Separator />
 

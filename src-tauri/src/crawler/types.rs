@@ -14,6 +14,11 @@ pub struct CrawlConfig {
     pub user_agent: String,
     #[serde(default = "default_timeout")]
     pub timeout_secs: u64,
+    /// Minimum delay, in milliseconds, between starting successive page requests —
+    /// a politeness throttle independent of `concurrency`. The site's robots.txt
+    /// `Crawl-delay`, if present and longer, takes precedence (see `run_crawl`).
+    #[serde(default)]
+    pub delay_ms: u64,
     #[serde(default = "default_true")]
     pub check_external_links: bool,
     #[serde(default = "default_true")]

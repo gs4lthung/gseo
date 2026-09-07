@@ -172,6 +172,31 @@ export function filterResources(resources: ResourceResult[], filter: FilterKey):
   return resources;
 }
 
+/** Free-text search across a page's URL, title, meta description and H1 — case-insensitive substring match. */
+export function searchPages(pages: PageResult[], query: string): PageResult[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return pages;
+  return pages.filter(
+    (p) =>
+      p.url.toLowerCase().includes(q) ||
+      (p.title?.toLowerCase().includes(q) ?? false) ||
+      (p.metaDescription?.toLowerCase().includes(q) ?? false) ||
+      (p.h1?.toLowerCase().includes(q) ?? false),
+  );
+}
+
+/** Free-text search across a resource's URL, source page and alt text — case-insensitive substring match. */
+export function searchResources(resources: ResourceResult[], query: string): ResourceResult[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return resources;
+  return resources.filter(
+    (r) =>
+      r.url.toLowerCase().includes(q) ||
+      r.sourcePage.toLowerCase().includes(q) ||
+      (r.altText?.toLowerCase().includes(q) ?? false),
+  );
+}
+
 const ALL_PAGE_ISSUE_KEYS: FilterKey[] = [
   "4xx5xx",
   "missingTitle",

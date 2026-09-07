@@ -3,10 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { ColumnDef } from "@tanstack/react-table";
-import { TriangleAlert } from "lucide-react";
+import { SearchIcon, TriangleAlert, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UrlCombobox } from "@/components/url-combobox";
 import { CrawlActions } from "@/components/crawl-actions";
@@ -39,6 +40,8 @@ import {
   getDuplicateTitleSet,
   getPageIssueKeys,
   getResourceIssueKeys,
+  searchPages,
+  searchResources,
 } from "./lib/filters";
 import { ISSUE_SOLUTIONS } from "./lib/issueSolutions";
 
@@ -328,6 +331,7 @@ function App() {
   const [selectedPage, setSelectedPage] = useState<PageResult | null>(null);
   const [selectedResource, setSelectedResource] = useState<ResourceResult | null>(null);
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [search, setSearch] = useState("");
   const [linkedUrls, setLinkedUrls] = useState<string[]>([]);
   const pagesBufRef = useRef<PageResult[]>([]);
   const resourcesBufRef = useRef<ResourceResult[]>([]);
@@ -504,10 +508,17 @@ function App() {
   const canonicalStatusMap = useMemo(() => getCanonicalStatusMap(pages), [pages]);
   const linkedUrlSet = useMemo(() => new Set(linkedUrls), [linkedUrls]);
   const filteredPages = useMemo(
-    () => filterPages(pages, filter, duplicateTitleSet, duplicateContentSet, duplicateMetaSet, canonicalStatusMap, linkedUrlSet),
-    [pages, filter, duplicateTitleSet, duplicateContentSet, duplicateMetaSet, canonicalStatusMap, linkedUrlSet],
+    () =>
+      searchPages(
+        filterPages(pages, filter, duplicateTitleSet, duplicateContentSet, duplicateMetaSet, canonicalStatusMap, linkedUrlSet),
+        search,
+      ),
+    [pages, filter, search, duplicateTitleSet, duplicateContentSet, duplicateMetaSet, canonicalStatusMap, linkedUrlSet],
   );
-  const filteredResources = useMemo(() => filterResources(resources, filter), [resources, filter]);
+  const filteredResources = useMemo(
+    () => searchResources(filterResources(resources, filter), search),
+    [resources, filter, search],
+  );
 
   const pageColumns = useMemo(
     () =>
@@ -576,6 +587,7 @@ function App() {
         onValueChange={(v) => {
           setTab(v as Tab);
           setFilter("all");
+          setSearch("");
         }}
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4"
       >
@@ -597,6 +609,29 @@ function App() {
                 ×
               </button>
             </Badge>
+          )}
+          {tab !== "overview" && (
+            <InputGroup className="w-64">
+              <InputGroupAddon>
+                <SearchIcon className="size-4" />
+              </InputGroupAddon>
+              <InputGroupInput
+                placeholder={`Search ${tab === "pages" ? "pages" : "links & images"}…`}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              {search && (
+                <InputGroupAddon align="inline-end">
+                  <InputGroupButton
+                    size="icon-xs"
+                    aria-label="Clear search"
+                    onClick={() => setSearch("")}
+                  >
+                    <XIcon />
+                  </InputGroupButton>
+                </InputGroupAddon>
+              )}
+            </InputGroup>
           )}
           <div className="flex-1" />
           <Button variant="outline" size="sm" onClick={handleOpenCrawl} disabled={running}>

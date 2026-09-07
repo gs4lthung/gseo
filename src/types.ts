@@ -5,6 +5,8 @@ export interface CrawlConfig {
   concurrency: number;
   userAgent: string;
   timeoutSecs: number;
+  /** Minimum delay, in milliseconds, between starting successive page requests to the crawled site — a politeness throttle independent of concurrency. If the site's robots.txt specifies a longer `Crawl-delay`, that value wins. */
+  delayMs: number;
   checkExternalLinks: boolean;
   checkImages: boolean;
   respectRobots: boolean;
@@ -126,6 +128,7 @@ export const DEFAULT_CONFIG: CrawlConfig = {
   concurrency: 5,
   userAgent: "GSEOCrawler/0.1 (+https://worldcraftlogistics.com)",
   timeoutSecs: 15,
+  delayMs: 0,
   checkExternalLinks: true,
   checkImages: true,
   respectRobots: false,
