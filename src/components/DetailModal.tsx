@@ -1,6 +1,8 @@
+import { ChevronDownIcon } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -27,27 +29,6 @@ export function DetailModal({ title, fields, issues, onClose }: DetailModalProps
         </DialogHeader>
         <ScrollArea type="always" className="-mx-4 min-h-0 flex-1 px-4">
           <div className="flex flex-col gap-4 pb-1">
-            {issues && issues.length > 0 && (
-              <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3">
-                <div className="text-xs font-medium text-muted-foreground uppercase">
-                  Recommendations ({issues.length})
-                </div>
-                {issues.map((issue) => (
-                  <div key={issue.title} className="flex flex-col gap-1 rounded-md bg-card p-3 ring-1 ring-foreground/10">
-                    <div className="text-sm font-medium">{issue.title}</div>
-                    <p className="text-sm text-muted-foreground">{issue.problem}</p>
-                    <p className="text-sm">{issue.fix}</p>
-                    <Button
-                      variant="link"
-                      className="h-auto justify-start self-start p-0 text-xs"
-                      onClick={() => openUrl(issue.source.url)}
-                    >
-                      {issue.source.label} ↗
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
             <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
               {fields.map((f) => {
                 const isEmpty = f.value === null || f.value === undefined || f.value === "";
@@ -72,6 +53,32 @@ export function DetailModal({ title, fields, issues, onClose }: DetailModalProps
                 );
               })}
             </div>
+            {issues && issues.length > 0 && (
+              <Collapsible className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3">
+                <CollapsibleTrigger asChild>
+                  <button className="group flex items-center justify-between text-xs font-medium text-muted-foreground uppercase">
+                    Recommendations ({issues.length})
+                    <ChevronDownIcon className="size-3.5 transition-transform group-data-[state=open]:rotate-180" />
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="flex flex-col gap-3">
+                  {issues.map((issue) => (
+                    <div key={issue.title} className="flex flex-col gap-1 rounded-md bg-card p-3 ring-1 ring-foreground/10">
+                      <div className="text-sm font-medium">{issue.title}</div>
+                      <p className="text-sm text-muted-foreground">{issue.problem}</p>
+                      <p className="text-sm">{issue.fix}</p>
+                      <Button
+                        variant="link"
+                        className="h-auto justify-start self-start p-0 text-xs"
+                        onClick={() => openUrl(issue.source.url)}
+                      >
+                        {issue.source.label} ↗
+                      </Button>
+                    </div>
+                  ))}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
           </div>
         </ScrollArea>
       </DialogContent>

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { ColumnDef } from "@tanstack/react-table";
+import { TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,8 @@ import {
 } from "./types";
 import {
   type FilterKey,
+  TITLE_MAX_LENGTH,
+  TITLE_MIN_LENGTH,
   filterPages,
   filterResources,
   filterTab,
@@ -41,129 +44,276 @@ import { ISSUE_SOLUTIONS } from "./lib/issueSolutions";
 
 type Tab = "overview" | "pages" | "resources";
 
-const pageColumns: ColumnDef<PageResult, any>[] = [
-  { accessorKey: "url", header: "URL", size: 360 },
-  { accessorKey: "status", header: "Status", size: 70, cell: (c) => c.getValue() ?? "-" },
-  { accessorKey: "indexability", header: "Indexability", size: 160 },
-  { accessorKey: "title", header: "Title", size: 260, cell: (c) => c.getValue() ?? "" },
-  { accessorKey: "titleLength", header: "Title Len", size: 80 },
-  { accessorKey: "metaDescription", header: "Meta Description", size: 260, cell: (c) => c.getValue() ?? "" },
-  { accessorKey: "metaDescriptionLength", header: "Meta Len", size: 80 },
-  { accessorKey: "h1", header: "H1", size: 200, cell: (c) => c.getValue() ?? "" },
-  { accessorKey: "h1Count", header: "H1 Count", size: 80 },
-  { accessorKey: "wordCount", header: "Word Count", size: 100 },
-  { accessorKey: "canonical", header: "Canonical", size: 260, cell: (c) => c.getValue() ?? "" },
-  { accessorKey: "responseTimeMs", header: "Time (ms)", size: 90 },
-  { accessorKey: "internalLinkCount", header: "Inlinks", size: 80 },
-  { accessorKey: "externalLinkCount", header: "Outlinks", size: 80 },
-  { accessorKey: "imageCount", header: "Images", size: 70 },
-  {
-    accessorKey: "htmlSizeBytes",
-    header: "Size (KB)",
-    size: 90,
-    cell: (c) => (c.getValue() ? (c.getValue() / 1024).toFixed(1) : "-"),
-  },
-  {
-    accessorKey: "isMinified",
-    header: "Minified",
-    size: 90,
-    cell: (c) => (c.row.original.htmlSizeBytes ? (c.getValue() ? "Yes" : "No") : "-"),
-  },
-  {
-    accessorKey: "minifySavingsPct",
-    header: "Minify Savings",
-    size: 110,
-    cell: (c) => (c.row.original.htmlSizeBytes ? `${(c.getValue() as number).toFixed(0)}%` : "-"),
-  },
-  { accessorKey: "depth", header: "Depth", size: 60 },
-  {
-    accessorKey: "rendered",
-    header: "JS Rendered",
-    size: 100,
-    cell: (c) => (c.getValue() ? "Yes" : "No"),
-  },
-  {
-    accessorKey: "hsts",
-    header: "HSTS",
-    size: 80,
-    cell: (c) => (c.row.original.url.startsWith("https:") ? (c.getValue() ? "Yes" : "No") : "-"),
-  },
-  { accessorKey: "insecureLinkCount", header: "Insecure Links", size: 110 },
-  { accessorKey: "missingAltCount", header: "Missing Alt", size: 100 },
-  {
-    accessorKey: "lang",
-    header: "Lang",
-    size: 80,
-    cell: (c) => (c.row.original.htmlSizeBytes ? (c.getValue() ?? "-") : "-"),
-  },
-  {
-    accessorKey: "hreflangValues",
-    header: "Hreflang",
-    size: 140,
-    cell: (c) => (c.getValue() as string[]).join(", "),
-  },
-  { accessorKey: "internalNofollowCount", header: "Nofollow Links", size: 110 },
-  {
-    accessorKey: "textRatioPct",
-    header: "Text/HTML Ratio",
-    size: 120,
-    cell: (c) => (c.row.original.htmlSizeBytes ? `${(c.getValue() as number).toFixed(1)}%` : "-"),
-  },
-  {
-    accessorKey: "viewport",
-    header: "Viewport",
-    size: 90,
-    cell: (c) => (c.row.original.htmlSizeBytes ? (c.getValue() ? "Yes" : "No") : "-"),
-  },
-  {
-    accessorKey: "hasOpenGraph",
-    header: "Open Graph",
-    size: 100,
-    cell: (c) => (c.getValue() ? "Yes" : "No"),
-  },
-  {
-    accessorKey: "hasTwitterCard",
-    header: "Twitter Card",
-    size: 100,
-    cell: (c) => (c.getValue() ? "Yes" : "No"),
-  },
-  { accessorKey: "canonicalCount", header: "Canonical Count", size: 110 },
-  {
-    accessorKey: "redirectChain",
-    header: "Redirect Hops",
-    size: 110,
-    cell: (c) => (c.getValue() as string[]).length,
-  },
-  {
-    accessorKey: "discoveredViaSitemap",
-    header: "Via Sitemap",
-    size: 100,
-    cell: (c) => (c.getValue() ? "Yes" : "No"),
-  },
-  {
-    accessorKey: "structuredDataTypes",
-    header: "Structured Data",
-    size: 150,
-    cell: (c) => (c.getValue() as string[]).join(", "),
-  },
-  {
-    accessorKey: "accessibilityViolations",
-    header: "A11y Issues",
-    size: 100,
-    cell: (c) => (c.getValue() as unknown[]).length,
-  },
-];
+/** Wraps a cell's rendered value in destructive styling when `bad` is true — the inline, at-a-glance counterpart to DetailModal's `isError` fields. */
+function flagCell(value: React.ReactNode, bad: boolean) {
+  return bad ? <span className="font-medium text-destructive">{value}</span> : value;
+}
+
+interface PageColumnsContext {
+  duplicateTitles: Set<string>;
+  duplicateContent: Set<string>;
+  duplicateMeta: Set<string>;
+  canonicalStatusMap: Map<string, number | null>;
+  linkedUrls: Set<string>;
+}
+
+function buildPageColumns(ctx: PageColumnsContext): ColumnDef<PageResult, any>[] {
+  return [
+    { accessorKey: "url", header: "URL", size: 360 },
+    {
+      id: "issues",
+      header: "Issues",
+      size: 70,
+      accessorFn: (page) =>
+        getPageIssueKeys(
+          page,
+          ctx.duplicateTitles,
+          ctx.duplicateContent,
+          ctx.duplicateMeta,
+          ctx.canonicalStatusMap,
+          ctx.linkedUrls,
+        ).length,
+      cell: (c) => {
+        const count = c.getValue() as number;
+        if (count === 0) return <span className="text-muted-foreground">—</span>;
+        const keys = getPageIssueKeys(
+          c.row.original,
+          ctx.duplicateTitles,
+          ctx.duplicateContent,
+          ctx.duplicateMeta,
+          ctx.canonicalStatusMap,
+          ctx.linkedUrls,
+        );
+        const titles = keys.map((k) => ISSUE_SOLUTIONS[k]?.title).filter(Boolean).join("; ");
+        return (
+          <span
+            title={titles}
+            className="inline-flex items-center gap-1 font-medium text-destructive"
+          >
+            <TriangleAlert className="size-3.5" />
+            {count}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      size: 70,
+      cell: (c) => {
+        const v = c.getValue();
+        return flagCell(v ?? "-", v === null || v >= 400);
+      },
+    },
+    { accessorKey: "indexability", header: "Indexability", size: 160 },
+    {
+      accessorKey: "title",
+      header: "Title",
+      size: 260,
+      cell: (c) => {
+        const v = c.getValue() as string | null;
+        return flagCell(v ?? "", !v || ctx.duplicateTitles.has(v));
+      },
+    },
+    {
+      accessorKey: "titleLength",
+      header: "Title Len",
+      size: 80,
+      cell: (c) => {
+        const v = c.getValue() as number;
+        const hasTitle = !!c.row.original.title;
+        return flagCell(v, hasTitle && (v < TITLE_MIN_LENGTH || v > TITLE_MAX_LENGTH));
+      },
+    },
+    {
+      accessorKey: "metaDescription",
+      header: "Meta Description",
+      size: 260,
+      cell: (c) => {
+        const v = c.getValue() as string | null;
+        return flagCell(v ?? "", !v || ctx.duplicateMeta.has(v));
+      },
+    },
+    { accessorKey: "metaDescriptionLength", header: "Meta Len", size: 80 },
+    {
+      accessorKey: "h1",
+      header: "H1",
+      size: 200,
+      cell: (c) => flagCell(c.getValue() ?? "", c.row.original.h1Count !== 1),
+    },
+    {
+      accessorKey: "h1Count",
+      header: "H1 Count",
+      size: 80,
+      cell: (c) => flagCell(c.getValue(), c.getValue() !== 1),
+    },
+    { accessorKey: "wordCount", header: "Word Count", size: 100 },
+    {
+      accessorKey: "canonical",
+      header: "Canonical",
+      size: 260,
+      cell: (c) => {
+        const page = c.row.original;
+        const target = page.canonical;
+        const brokenTarget =
+          !!target &&
+          target !== page.url &&
+          ctx.canonicalStatusMap.has(target) &&
+          (ctx.canonicalStatusMap.get(target) === null || (ctx.canonicalStatusMap.get(target) as number) >= 400);
+        return flagCell(c.getValue() ?? "", page.canonicalCount > 1 || brokenTarget);
+      },
+    },
+    { accessorKey: "responseTimeMs", header: "Time (ms)", size: 90 },
+    { accessorKey: "internalLinkCount", header: "Inlinks", size: 80 },
+    { accessorKey: "externalLinkCount", header: "Outlinks", size: 80 },
+    { accessorKey: "imageCount", header: "Images", size: 70 },
+    {
+      accessorKey: "htmlSizeBytes",
+      header: "Size (KB)",
+      size: 90,
+      cell: (c) => (c.getValue() ? (c.getValue() / 1024).toFixed(1) : "-"),
+    },
+    {
+      accessorKey: "isMinified",
+      header: "Minified",
+      size: 90,
+      cell: (c) => (c.row.original.htmlSizeBytes ? (c.getValue() ? "Yes" : "No") : "-"),
+    },
+    {
+      accessorKey: "minifySavingsPct",
+      header: "Minify Savings",
+      size: 110,
+      cell: (c) => (c.row.original.htmlSizeBytes ? `${(c.getValue() as number).toFixed(0)}%` : "-"),
+    },
+    { accessorKey: "depth", header: "Depth", size: 60 },
+    {
+      accessorKey: "rendered",
+      header: "JS Rendered",
+      size: 100,
+      cell: (c) => (c.getValue() ? "Yes" : "No"),
+    },
+    {
+      accessorKey: "hsts",
+      header: "HSTS",
+      size: 80,
+      cell: (c) => {
+        const isHttps = c.row.original.url.startsWith("https:");
+        return flagCell(isHttps ? (c.getValue() ? "Yes" : "No") : "-", isHttps && !c.getValue());
+      },
+    },
+    {
+      accessorKey: "insecureLinkCount",
+      header: "Insecure Links",
+      size: 110,
+      cell: (c) => flagCell(c.getValue(), (c.getValue() as number) > 0),
+    },
+    {
+      accessorKey: "missingAltCount",
+      header: "Missing Alt",
+      size: 100,
+      cell: (c) => flagCell(c.getValue(), (c.getValue() as number) > 0),
+    },
+    {
+      accessorKey: "lang",
+      header: "Lang",
+      size: 80,
+      cell: (c) => {
+        const hasHtml = !!c.row.original.htmlSizeBytes;
+        return flagCell(hasHtml ? (c.getValue() ?? "-") : "-", hasHtml && !c.getValue());
+      },
+    },
+    {
+      accessorKey: "hreflangValues",
+      header: "Hreflang",
+      size: 140,
+      cell: (c) => (c.getValue() as string[]).join(", "),
+    },
+    { accessorKey: "internalNofollowCount", header: "Nofollow Links", size: 110 },
+    {
+      accessorKey: "textRatioPct",
+      header: "Text/HTML Ratio",
+      size: 120,
+      cell: (c) => (c.row.original.htmlSizeBytes ? `${(c.getValue() as number).toFixed(1)}%` : "-"),
+    },
+    {
+      accessorKey: "viewport",
+      header: "Viewport",
+      size: 90,
+      cell: (c) => (c.row.original.htmlSizeBytes ? (c.getValue() ? "Yes" : "No") : "-"),
+    },
+    {
+      accessorKey: "hasOpenGraph",
+      header: "Open Graph",
+      size: 100,
+      cell: (c) => (c.getValue() ? "Yes" : "No"),
+    },
+    {
+      accessorKey: "hasTwitterCard",
+      header: "Twitter Card",
+      size: 100,
+      cell: (c) => (c.getValue() ? "Yes" : "No"),
+    },
+    {
+      accessorKey: "canonicalCount",
+      header: "Canonical Count",
+      size: 110,
+      cell: (c) => flagCell(c.getValue(), (c.getValue() as number) > 1),
+    },
+    {
+      accessorKey: "redirectChain",
+      header: "Redirect Hops",
+      size: 110,
+      cell: (c) => flagCell((c.getValue() as string[]).length, (c.getValue() as string[]).length > 1),
+    },
+    {
+      accessorKey: "discoveredViaSitemap",
+      header: "Via Sitemap",
+      size: 100,
+      cell: (c) => (c.getValue() ? "Yes" : "No"),
+    },
+    {
+      accessorKey: "structuredDataTypes",
+      header: "Structured Data",
+      size: 150,
+      cell: (c) => (c.getValue() as string[]).join(", "),
+    },
+    {
+      accessorKey: "accessibilityViolations",
+      header: "A11y Issues",
+      size: 100,
+      cell: (c) => flagCell((c.getValue() as unknown[]).length, (c.getValue() as unknown[]).length > 0),
+    },
+  ];
+}
 
 const resourceColumns: ColumnDef<ResourceResult, any>[] = [
   { accessorKey: "url", header: "URL", size: 380 },
   { accessorKey: "resourceType", header: "Type", size: 80 },
-  { accessorKey: "status", header: "Status", size: 70, cell: (c) => c.getValue() ?? "-" },
+  {
+    accessorKey: "status",
+    header: "Status",
+    size: 70,
+    cell: (c) => {
+      const v = c.getValue();
+      return flagCell(v ?? "-", v === null || v >= 400);
+    },
+  },
   { accessorKey: "statusText", header: "Status Text", size: 160 },
   { accessorKey: "sourcePage", header: "Source Page", size: 360 },
   { accessorKey: "isInternal", header: "Internal", size: 80, cell: (c) => (c.getValue() ? "Yes" : "No") },
   { accessorKey: "altText", header: "Alt Text", size: 200, cell: (c) => c.getValue() ?? "" },
-  { accessorKey: "isInsecure", header: "Insecure", size: 80, cell: (c) => (c.getValue() ? "Yes" : "No") },
-  { accessorKey: "error", header: "Error", size: 200, cell: (c) => c.getValue() ?? "" },
+  {
+    accessorKey: "isInsecure",
+    header: "Insecure",
+    size: 80,
+    cell: (c) => flagCell(c.getValue() ? "Yes" : "No", !!c.getValue()),
+  },
+  {
+    accessorKey: "error",
+    header: "Error",
+    size: 200,
+    cell: (c) => flagCell(c.getValue() ?? "", !!c.getValue()),
+  },
 ];
 
 function App() {
@@ -358,6 +508,18 @@ function App() {
     [pages, filter, duplicateTitleSet, duplicateContentSet, duplicateMetaSet, canonicalStatusMap, linkedUrlSet],
   );
   const filteredResources = useMemo(() => filterResources(resources, filter), [resources, filter]);
+
+  const pageColumns = useMemo(
+    () =>
+      buildPageColumns({
+        duplicateTitles: duplicateTitleSet,
+        duplicateContent: duplicateContentSet,
+        duplicateMeta: duplicateMetaSet,
+        canonicalStatusMap,
+        linkedUrls: linkedUrlSet,
+      }),
+    [duplicateTitleSet, duplicateContentSet, duplicateMetaSet, canonicalStatusMap, linkedUrlSet],
+  );
 
   const selectedPageIssues = useMemo(() => {
     if (!selectedPage) return [];
