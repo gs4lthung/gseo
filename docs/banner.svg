@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-labelledby="title desc">
+  <title id="title">GSEO Crawler</title>
+  <desc id="desc">A desktop site crawler and SEO auditor</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#161618"/>
+      <stop offset="100%" stop-color="#0c0c0d"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="18%" cy="30%" r="65%">
+      <stop offset="0%" stop-color="#34d399" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#34d399" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="card">
+      <rect x="0" y="0" width="1200" height="300" rx="28"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#card)">
+    <rect width="1200" height="300" fill="url(#bg)"/>
+    <rect width="1200" height="300" fill="url(#glow)"/>
+    <rect x="0.5" y="0.5" width="1199" height="299" rx="27.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+
+    <!-- faint dot grid texture -->
+    <g fill="#ffffff" fill-opacity="0.05">
+      <circle cx="1080" cy="60" r="2"/>
+      <circle cx="1120" cy="90" r="2"/>
+      <circle cx="1150" cy="50" r="2"/>
+      <circle cx="1100" cy="140" r="2"/>
+      <circle cx="1160" cy="170" r="2"/>
+      <circle cx="1040" cy="110" r="2"/>
+      <circle cx="1130" cy="220" r="2"/>
+      <circle cx="1060" cy="250" r="2"/>
+      <circle cx="1180" cy="240" r="2"/>
+      <circle cx="1000" cy="200" r="2"/>
+    </g>
+
+    <!-- icon: magnifying glass over a small crawl graph -->
+    <g transform="translate(80,72)">
+      <!-- crawl graph, framed inside the lens -->
+      <g stroke="#34d399" stroke-width="2.5" stroke-linecap="round" opacity="0.95">
+        <line x1="78" y1="40" x2="46" y2="70"/>
+        <line x1="78" y1="40" x2="104" y2="66"/>
+        <line x1="46" y1="70" x2="60" y2="104"/>
+        <line x1="104" y1="66" x2="60" y2="104"/>
+        <line x1="104" y1="66" x2="118" y2="100"/>
+      </g>
+      <circle cx="78" cy="40" r="8" fill="#0c0c0d" stroke="#34d399" stroke-width="3"/>
+      <circle cx="46" cy="70" r="6" fill="#0c0c0d" stroke="#34d399" stroke-width="3"/>
+      <circle cx="104" cy="66" r="6" fill="#0c0c0d" stroke="#34d399" stroke-width="3"/>
+      <circle cx="60" cy="104" r="6" fill="#0c0c0d" stroke="#34d399" stroke-width="3"/>
+      <circle cx="118" cy="100" r="7" fill="#0c0c0d" stroke="#f87171" stroke-width="3"/>
+
+      <!-- lens ring + handle -->
+      <circle cx="82" cy="72" r="72" fill="none" stroke="#e8e8ea" stroke-width="10"/>
+      <line x1="133" y1="123" x2="182" y2="172" stroke="#e8e8ea" stroke-width="16" stroke-linecap="round"/>
+    </g>
+
+    <!-- wordmark -->
+    <g font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">
+      <text x="330" y="150" font-size="72">
+        <tspan font-weight="700" letter-spacing="-1" fill="#f4f4f5">GSEO</tspan>
+        <tspan font-weight="300" fill="#9a9aa0" dx="16">Crawler</tspan>
+      </text>
+      <text x="332" y="192" font-size="24" font-weight="400" fill="#9a9aa0" letter-spacing="0.2">
+        Desktop site crawler &amp; SEO auditor
+      </text>
+    </g>
+
+    <!-- feature chips -->
+    <g font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="17" font-weight="500">
+      <g transform="translate(332,222)">
+        <rect width="150" height="36" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.1"/>
+        <circle cx="22" cy="18" r="5" fill="#34d399"/>
+        <text x="36" y="24" fill="#e8e8ea">Issue detection</text>
+      </g>
+      <g transform="translate(494,222)">
+        <rect width="122" height="36" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.1"/>
+        <circle cx="22" cy="18" r="5" fill="#34d399"/>
+        <text x="36" y="24" fill="#e8e8ea">JS render</text>
+      </g>
+      <g transform="translate(628,222)">
+        <rect width="150" height="36" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.1"/>
+        <circle cx="22" cy="18" r="5" fill="#34d399"/>
+        <text x="36" y="24" fill="#e8e8ea">Accessibility</text>
+      </g>
+    </g>
+  </g>
+</svg>
