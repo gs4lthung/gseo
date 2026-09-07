@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import type { ColumnDef } from "@tanstack/react-table";
 import { SearchIcon, TriangleAlert, XIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -335,6 +336,9 @@ function App() {
   const [linkedUrls, setLinkedUrls] = useState<string[]>([]);
   const pagesBufRef = useRef<PageResult[]>([]);
   const resourcesBufRef = useRef<ResourceResult[]>([]);
+  // Mirrors the state the close-confirmation handler below needs, so that handler
+  // (registered once on mount) always reads current values instead of a stale closure.
+  const closeGuardRef = useRef({ running: false, pagesCount: 0, resourcesCount: 0 });
 
   useEffect(() => {
     // `listen()`/unlisten are async, and React StrictMode's dev-only
@@ -407,6 +411,40 @@ function App() {
       active = false;
       if (flushHandle !== undefined) window.clearTimeout(flushHandle);
       unlistenFns.forEach((fn) => fn());
+    };
+  }, []);
+
+  useEffect(() => {
+    closeGuardRef.current = { running, pagesCount: pages.length, resourcesCount: resources.length };
+  }, [running, pages.length, resources.length]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    (async () => {
+      const fn = await getCurrentWindow().onCloseRequested(async (event) => {
+        const { running, pagesCount, resourcesCount } = closeGuardRef.current;
+        if (!running && pagesCount === 0 && resourcesCount === 0) return;
+
+        const message = running
+          ? "A crawl is currently running. Quitting now will stop it and lose progress. Quit anyway?"
+          : "You have crawl results that haven't been saved. Quit anyway?";
+        const confirmed = await ask(message, { title: "Quit GSEO Crawler?", kind: "warning" });
+        if (!confirmed) {
+          event.preventDefault();
+        }
+      });
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
     };
   }, []);
 

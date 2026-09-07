@@ -49,6 +49,7 @@ jobs:
         run: npm ci
 
       - uses: tauri-apps/tauri-action@v0
+        id: tauri_action
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -57,8 +58,40 @@ jobs:
           releaseBody: |
             See the assets below to download and install this version.
 
+            **Windows**: `GSEO-Crawler-portable-windows-x64.zip` needs no install — unzip
+            it and double-click `gseo-crawler.exe` to run. The `.msi`/`.exe` files are
+            regular installers if you'd rather have a Start Menu shortcut.
+
             Builds are unsigned — Windows SmartScreen and macOS Gatekeeper will warn
             before the first run. See the README for how to proceed past that warning.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      # Windows installers (.msi/.exe) still run a setup wizard. For anyone who just
+      # wants to double-click and go, also publish the raw binary as a zero-install zip.
+      - name: Package portable Windows build
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path src-tauri/target/release/gseo-crawler.exe -DestinationPath GSEO-Crawler-portable-windows-x64.zip
+
+      # The release is a draft at this point, and GitHub's "get release by tag" API
+      # (which a plain `gh release upload <tag>` relies on) only resolves published
+      # releases — so this uploads straight to the release ID tauri-action just created,
+      # the same way tauri-action uploads its own installer artifacts.
+      - name: Attach portable build to the release
+        if: matrix.platform == 'windows-latest'
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ steps.tauri_action.outputs.releaseId }}
+        with:
+          script: |
+            const fs = require('fs');
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: Number(process.env.RELEASE_ID),
+              name: 'GSEO-Crawler-portable-windows-x64.zip',
+              data: fs.readFileSync('GSEO-Crawler-portable-windows-x64.zip'),
+            });

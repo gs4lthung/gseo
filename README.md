@@ -8,14 +8,14 @@ A desktop site crawler and SEO auditor built with **Tauri**, **React**, and **Ru
 
 ## Download
 
-No build tools required — grab an installer for your OS from the **[Releases page](https://github.com/gs4lthung/gseo/releases)**:
+No build tools, no source code, no install wizard needed — grab a build for your OS from the **[Releases page](https://github.com/gs4lthung/gseo/releases)**:
 
-| Platform | File |
-| --- | --- |
-| Windows | `.msi` or `.exe` |
-| macOS (Apple Silicon) | `.dmg` (aarch64) |
-| macOS (Intel) | `.dmg` (x64) |
-| Linux | `.AppImage` or `.deb` |
+| Platform | Just want to run it | Prefer a proper install |
+| --- | --- | --- |
+| Windows | `GSEO-Crawler-portable-windows-x64.zip` — unzip, double-click `gseo-crawler.exe` | `.msi` or `.exe` installer |
+| macOS (Apple Silicon) | — | `.dmg` (aarch64) |
+| macOS (Intel) | — | `.dmg` (x64) |
+| Linux | `.AppImage` — mark executable, double-click | `.deb` |
 
 Builds aren't code-signed yet, so the OS will warn before the first run:
 - **Windows**: click "More info" → "Run anyway" on the SmartScreen prompt.
